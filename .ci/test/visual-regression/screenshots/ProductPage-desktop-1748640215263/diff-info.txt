@@ -1,0 +1,7 @@
+
+            Test: ProductPage on desktop
+            Reference size: 284957 bytes
+            Test size: 279136 bytes
+            Images match: No
+            Visual differences detected!
+          

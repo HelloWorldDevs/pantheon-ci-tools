@@ -1,0 +1,7 @@
+
+            Test: SupportPage on mobile
+            Reference size: 302427 bytes
+            Test size: 298538 bytes
+            Images match: No
+            Visual differences detected!
+          

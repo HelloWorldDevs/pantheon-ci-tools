@@ -1,0 +1,7 @@
+
+            Test: NewsPage on desktop
+            Reference size: 365621 bytes
+            Test size: 361252 bytes
+            Images match: No
+            Visual differences detected!
+          

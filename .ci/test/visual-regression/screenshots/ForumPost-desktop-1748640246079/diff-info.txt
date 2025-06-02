@@ -1,0 +1,7 @@
+
+            Test: ForumPost on desktop
+            Reference size: 148169 bytes
+            Test size: 141078 bytes
+            Images match: No
+            Visual differences detected!
+          

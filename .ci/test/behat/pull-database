@@ -1,0 +1,30 @@
+#!/bin/bash
+
+# Pulls database from live/prod for use in Behat tests
+# when testing against a database with content is desired.
+
+set -eo pipefail
+
+terminus auth:login --machine-token="$TERMINUS_TOKEN"
+
+# If the database needs to be super recent, uncomment the next lines.
+#echo "Creating database backup..."
+#terminus backup:create "$TERMINUS_SITE.live" --element=db
+
+echo "Preparing backup directory..."
+mkdir -p ./tmp
+mkdir -p ./tmp/workspace
+mkdir -p ./tmp/workspace/db
+# This is a creative way to get the most recent backup. According to docs, terminus backup:get
+# will pull the most recent, but in fact it pulls the oldest manual backup.
+# See: https://pantheon.io/docs/terminus/commands/backup-list
+# See: https://pantheon.io/docs/terminus/commands/backup-get
+echo "Pulling database backup..."
+BACKUP_FILENAME=$(echo $(terminus backup:list --element=db --fields=Filename --format=string --no-ansi -- "$TERMINUS_SITE.live") | cut -d' ' -f1)
+echo "The latest backup is: $BACKUP_FILENAME"
+
+# Export filename of backup to var we can access in later job.
+touch ./tmp/workspace/env_vars
+echo "export BACKUP_FILENAME=\"$BACKUP_FILENAME\"" >> ./tmp/workspace/env_vars
+
+terminus backup:get --element=db --file="$BACKUP_FILENAME" --to=./tmp/workspace/db/"$BACKUP_FILENAME" --verbose -- "$TERMINUS_SITE.live"

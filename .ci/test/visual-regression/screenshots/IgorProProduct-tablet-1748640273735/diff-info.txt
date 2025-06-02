@@ -1,0 +1,7 @@
+
+            Test: IgorProProduct on tablet
+            Reference size: 1077451 bytes
+            Test size: 1066039 bytes
+            Images match: No
+            Visual differences detected!
+          

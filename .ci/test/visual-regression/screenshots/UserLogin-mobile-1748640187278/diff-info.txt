@@ -1,0 +1,7 @@
+
+            Test: UserLogin on mobile
+            Reference size: 80949 bytes
+            Test size: 80577 bytes
+            Images match: No
+            Visual differences detected!
+          

@@ -1,0 +1,26 @@
+#!/bin/bash
+
+# Runs Behat tests against site spun up in Docker container.
+
+mkdir -p ./tests/behat/results
+mkdir -p ./tests/behat/results/junit
+# Sometimes Behat will return a non-zero exit code despite all tests
+# passing. As a sanity check we search the junit xml results for
+# failed tests, and if we find none, set exit code 0.
+if ./vendor/bin/behat --config ./tests/behat/behat.yml --suite default --profile circleci -f pretty -o std -f junit -o ./tests/behat/results/junit/junit.xml;
+then
+  (exit 0)
+else
+  sleep 10s
+  echo "Status code not 0. Checking test results."
+  COUNT=$(grep 'status="failed"' ./tests/behat/results/junit/junit.xml/default.xml | wc -l | xargs)
+  echo "$COUNT tests failed."
+  if [ $COUNT = 0 ];
+  then
+    echo "No tests failed. Setting exit code to 0."
+    (exit 0)
+  else
+    echo "$COUNT tests failed. Setting exit code to 1."
+    (exit 1)
+  fi
+fi

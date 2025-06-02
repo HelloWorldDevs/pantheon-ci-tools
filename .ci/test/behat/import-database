@@ -1,0 +1,52 @@
+#!/bin/bash
+
+# Imports database dump created by pull-database.
+
+# @todo gunzip returns exit code 141,
+# causing script to fail if pipefail is set.
+#set -eo pipefail
+
+# Get db backup filename set as var by pull-database.
+source ./tmp/workspace/env_vars
+
+if test -f ./tmp/workspace/db/"$BACKUP_FILENAME"; then
+  echo "Unzipping backup..."
+  yes n | gunzip ./tmp/workspace/db/"$BACKUP_FILENAME" -f
+
+  set -eo pipefail
+
+  BACKUP_FILENAME=$(echo "$BACKUP_FILENAME" | sed 's/\.gz//g')
+
+  echo "Unzipped backup is: $BACKUP_FILENAME"
+
+  echo "Importing database..."
+  # Import the db.
+  ./vendor/bin/drush sqlc < ./tmp/workspace/db/"$BACKUP_FILENAME"
+
+  # Remove temporary directory which is no longer needed.
+  rm -rf ./tmp/workspace
+
+  echo "Running db updates, importing config and clearing caches..."
+  # It is critical to clear caches before importing config,
+  # otherwise the import will do much more than it actually should
+  # and will actually "corrupt" the database.
+  ./vendor/bin/drush cr;
+
+  # Get status for debugging purposes.
+  ./vendor/bin/drush status;
+
+  # Run db updates.
+  ./vendor/bin/drush updb -y;
+
+  # Run config import for x mins until it completes to avoid memory limit.
+  while timeout 7m ./vendor/bin/drush config-import -y; [ $? -ne 0 ]
+  do
+    :
+  done
+
+  # Clear caches again.
+  ./vendor/bin/drush cr;
+else
+  echo "Can't find database dump."
+  exit 1;
+fi

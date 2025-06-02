@@ -1,0 +1,7 @@
+
+            Test: SupportPage on desktop
+            Reference size: 355206 bytes
+            Test size: 346342 bytes
+            Images match: No
+            Visual differences detected!
+          

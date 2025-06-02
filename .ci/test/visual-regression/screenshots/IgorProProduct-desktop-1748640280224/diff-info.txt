@@ -1,0 +1,7 @@
+
+            Test: IgorProProduct on desktop
+            Reference size: 1443137 bytes
+            Test size: 1408123 bytes
+            Images match: No
+            Visual differences detected!
+          

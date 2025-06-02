@@ -1,0 +1,7 @@
+
+            Test: IgorPro9 on mobile
+            Reference size: 118823 bytes
+            Test size: 111214 bytes
+            Images match: No
+            Visual differences detected!
+          

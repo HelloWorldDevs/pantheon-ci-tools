@@ -1,0 +1,70 @@
+name: Delete Multidev on Merge
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  delete-multidev:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Set up Terminus
+        uses: pantheon-systems/terminus-installer@v1
+        with:
+          version: 3.1.6
+          install-dir: /tmp/terminus
+
+      - name: Configure Terminus
+        run: |
+          mkdir -p ~/.terminus/plugins
+          composer -d=/tmp/terminus require --dev pantheon-systems/terminus-secrets-plugin:^2
+          echo "${TERMINUS_TOKEN}" > ~/.terminus/cache/token
+
+      - name: Delete Multidev Environment
+        env:
+          TERMINUS_TOKEN: ${{ secrets.TERMINUS_TOKEN }}
+          PANTHEON_SITE: ${{ vars.PANTHEON_SITE || 'your-site-name' }}
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          # Clean up branch name to be a valid multidev name
+          CLEAN_BRANCH=$(echo "$BRANCH" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | cut -c 1-11 | sed 's/-$//')
+          
+          # Check if the multidev environment exists
+          if /tmp/terminus/bin/terminus env:info ${PANTHEON_SITE}.dev 2>&1 | grep -q "${CLEAN_BRANCH}"; then
+            echo "Deleting multidev environment: ${CLEAN_BRANCH}"
+            /tmp/terminus/bin/terminus multidev:delete ${PANTHEON_SITE}.${CLEAN_BRANCH} --delete-branch --yes
+          else
+            echo "No multidev environment found for branch: ${CLEAN_BRANCH}"
+          fi
+
+      - name: Post cleanup comment
+        uses: actions/github-script@v6
+        if: always()
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            const hasExistingComment = comments.some(comment => 
+              comment.user.login === 'github-actions[bot]' && 
+              comment.body.includes('Multidev environment cleanup')
+            );
+            
+            if (!hasExistingComment) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: 'Multidev environment cleanup completed.'
+              });
+            }
