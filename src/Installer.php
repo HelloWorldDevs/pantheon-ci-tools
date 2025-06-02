@@ -14,6 +14,8 @@ class Installer
      */
     public static function postInstall(Event $event)
     {
+        // Debug output to confirm this method is being called
+        file_put_contents('php://stderr', "\n\n[PANTHEON-CI-DEBUG] postInstall() method called!\n");
         echo "\n\n[PANTHEON-CI] Starting installation...\n";
         self::copyFiles();
         echo "[PANTHEON-CI] Installation complete\n\n";
@@ -27,6 +29,8 @@ class Installer
      */
     public static function postUpdate(Event $event)
     {
+        // Debug output to confirm this method is being called
+        file_put_contents('php://stderr', "\n\n[PANTHEON-CI-DEBUG] postUpdate() method called!\n");
         echo "\n\n[PANTHEON-CI] Starting update...\n";
         self::copyFiles();
         echo "[PANTHEON-CI] Update complete\n\n";
@@ -39,8 +43,12 @@ class Installer
      */
     protected static function copyFiles()
     {
+        file_put_contents('php://stderr', "\n[PANTHEON-CI-DEBUG] copyFiles() method started!\n");
         $sourceBase = dirname(__DIR__);
         $destBase = dirname(dirname(dirname(__DIR__)));
+        
+        file_put_contents('php://stderr', "[PANTHEON-CI-DEBUG] Source base: {$sourceBase}\n");
+        file_put_contents('php://stderr', "[PANTHEON-CI-DEBUG] Destination base: {$destBase}\n");
         
         // Ensure destination directories exist
         self::ensureDirectoryExists($destBase . '/.circleci');
@@ -53,13 +61,8 @@ class Installer
             $destBase . '/.circleci/config.yml'
         );
         
-        // Copy environment example if it doesn't exist
-        if (!file_exists($destBase . '/.env.example')) {
-            self::copyFile(
-                $sourceBase . '/files/.env.example',
-                $destBase . '/.env.example'
-            );
-        }
+        // Skip .env.example copying for now
+        // File will be added in a future version if needed
         
         // Copy test files
         self::copyFile(
