@@ -11,18 +11,76 @@ const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
 
-// Get environment variables
-const testUrl = process.env.TESTING_URL;
+// Set up environment variables with defaults
+const ENV = {
+  // Testing URL - try to get from environment variables or use Lando URL
+  TESTING_URL: process.env.TESTING_URL || 
+              process.env.LANDO_APP_URL || 
+              (process.env.LANDO_APP_NAME ? `https://${process.env.LANDO_APP_NAME}.lndo.site` : null) ||
+              'http://localhost',
+              
+  // Artifacts directory for saving screenshots
+  ARTIFACTS_DIR: process.env.ARTIFACTS_DIR || path.join(process.cwd(), 'artifacts'),
+  
+  // CI info
+  CI_BUILD_URL: process.env.CI_BUILD_URL || 'local-build',
+  CI_PROJECT_USERNAME: process.env.CI_PROJECT_USERNAME || 'local-user',
+  CI_PROJECT_REPONAME: process.env.CI_PROJECT_REPONAME || 
+                       (process.env.LANDO_APP_NAME || 'local-project'),
+                       
+  // Test configuration
+  PERCY_TOKEN: process.env.PERCY_TOKEN || '',
+  VISUAL_REGRESSION_ENABLED: process.env.VISUAL_REGRESSION_ENABLED !== 'false',
+};
 
-// Log the URLs we're testing
-console.log(`Testing URL: ${testUrl}`);
+// Ensure artifacts directory exists
+if (!fs.existsSync(ENV.ARTIFACTS_DIR)) {
+  fs.mkdirSync(ENV.ARTIFACTS_DIR, { recursive: true });
+  console.log(`Created artifacts directory at: ${ENV.ARTIFACTS_DIR}`);
+}
 
-// Test paths
-const paths = [
-  { name: "User Login", url: "/user" },
-  { name: "Home Page", url: "/" },
-  // Add other paths as needed
-];
+// Log the configuration
+console.log('Test configuration:');
+console.log(`Testing URL: ${ENV.TESTING_URL}`);
+console.log(`Artifacts directory: ${ENV.ARTIFACTS_DIR}`);
+console.log(`CI Build: ${ENV.CI_BUILD_URL}`);
+console.log(`Visual regression testing enabled: ${ENV.VISUAL_REGRESSION_ENABLED}`);
+
+
+// Find project root (assuming this script is in .ci/test/visual-regression)
+const projectRoot = path.resolve(process.cwd(), '../../../../');
+const testRoutesPath = path.join(projectRoot, 'test_routes.json');
+
+// Initialize paths array
+let paths = [];
+
+// Try to load routes from test_routes.json at project root
+try {
+  if (fs.existsSync(testRoutesPath)) {
+    console.log(`Found test_routes.json at: ${testRoutesPath}`);
+    const routesData = JSON.parse(fs.readFileSync(testRoutesPath, 'utf8'));
+    
+    // Convert the JSON data to the expected format
+    paths = Object.entries(routesData).map(([name, url]) => {
+      // Remove domain part if present, we only need the path
+      const parsedUrl = new URL(url.startsWith('http') ? url : `http://example.com${url}`);
+      return {
+        name,
+        url: parsedUrl.pathname + parsedUrl.search
+      };
+    });
+    
+    console.log('Using routes from test_routes.json:');
+    console.log(paths);
+  } else {
+    console.error(`ERROR: test_routes.json not found at ${testRoutesPath}`);
+    console.error('Please create a test_routes.json file at the root of your project');
+    process.exit(1); // Exit with error code
+  }
+} catch (error) {
+  console.error(`ERROR reading test_routes.json: ${error.message}`);
+  process.exit(1); // Exit with error code
+}
 
 // Create directory structure if it doesn't exist
 function ensureDirectoryExists(dir) {
@@ -64,7 +122,7 @@ paths.forEach(({ name, url }) => {
     // Pre-warm caches before tests run
     test.beforeAll(async () => {
       // Pre-warm both reference and test URLs
-      await preWarmCache(`${testUrl}${url}`);
+      await preWarmCache(`${ENV.TESTING_URL}${url}`);
       // Add a delay to ensure caches are fully built
       await new Promise(resolve => setTimeout(resolve, 2000));
     });
@@ -92,7 +150,7 @@ paths.forEach(({ name, url }) => {
         // The URL to test varies based on the execution context
         // First run with --update-snapshots will use DEV_SITE_URL (reference)
         // Second run without the flag will use MULTIDEV_SITE_URL (test)
-        const urlToTest = testUrl;
+        const urlToTest = ENV.TESTING_URL;
 
         console.log(`Navigating to: ${urlToTest}${url}`);
         await testPage.goto(`${urlToTest}${url}`, {
