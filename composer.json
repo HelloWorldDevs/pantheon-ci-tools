@@ -17,10 +17,10 @@
         }
     },
     "scripts": {
-        "post-package-install": [
+        "post-install-cmd": [
             "HelloWorldDevs\\PantheonCI\\Installer::postInstall"
         ],
-        "post-package-update": [
+        "post-update-cmd": [
             "HelloWorldDevs\\PantheonCI\\Installer::postUpdate"
         ]
     },

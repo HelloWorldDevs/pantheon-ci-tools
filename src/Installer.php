@@ -2,30 +2,34 @@
 
 namespace HelloWorldDevs\PantheonCI;
 
-use Composer\Installer\PackageEvent;
+use Composer\Script\Event;
 
 class Installer
 {
     /**
      * Post package install callback
      *
-     * @param PackageEvent $event
+     * @param Event $event
      * @return void
      */
-    public static function postInstall(PackageEvent $event)
+    public static function postInstall(Event $event)
     {
+        echo "\n\n[PANTHEON-CI] Starting installation...\n";
         self::copyFiles();
+        echo "[PANTHEON-CI] Installation complete\n\n";
     }
 
     /**
      * Post package update callback
      *
-     * @param PackageEvent $event
+     * @param Event $event
      * @return void
      */
-    public static function postUpdate(PackageEvent $event)
+    public static function postUpdate(Event $event)
     {
+        echo "\n\n[PANTHEON-CI] Starting update...\n";
         self::copyFiles();
+        echo "[PANTHEON-CI] Update complete\n\n";
     }
 
     /**
@@ -46,32 +50,32 @@ class Installer
         // Copy CircleCI config
         self::copyFile(
             $sourceBase . '/files/.circleci/config.yml',
-            $destBase . '../.circleci/config.yml'
+            $destBase . '/.circleci/config.yml'
         );
         
         // Copy environment example if it doesn't exist
         if (!file_exists($destBase . '/.env.example')) {
             self::copyFile(
-                $sourceBase . '/.env.example',
-                $destBase . '../.env.example'
+                $sourceBase . '/files/.env.example',
+                $destBase . '/.env.example'
             );
         }
         
         // Copy test files
         self::copyFile(
             $sourceBase . '/files/.ci/test/visual-regression/playwright.config.js',
-            $destBase . '../.ci/test/visual-regression/playwright.config.js'
+            $destBase . '/.ci/test/visual-regression/playwright.config.js'
         );
         
         self::copyFile(
             $sourceBase . '/files/.ci/test/visual-regression/playwright-tests.spec.js',
-            $destBase . '../.ci/test/visual-regression/playwright-tests.spec.js'
+            $destBase . '/.ci/test/visual-regression/playwright-tests.spec.js'
         );
         
         // Copy script files
         self::copyFile(
             $sourceBase . '/files/.ci/scripts/setup_vars.sh',
-            $destBase . '../.ci/scripts/setup_vars.sh'
+            $destBase . '/.ci/scripts/setup_vars.sh'
         );
         
         echo "Pantheon CI files installed to project root!\n";
