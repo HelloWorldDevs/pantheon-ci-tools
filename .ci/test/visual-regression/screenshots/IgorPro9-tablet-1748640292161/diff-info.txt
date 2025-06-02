@@ -1,7 +1,0 @@
-
-            Test: IgorPro9 on tablet
-            Reference size: 132363 bytes
-            Test size: 126958 bytes
-            Images match: No
-            Visual differences detected!
-          

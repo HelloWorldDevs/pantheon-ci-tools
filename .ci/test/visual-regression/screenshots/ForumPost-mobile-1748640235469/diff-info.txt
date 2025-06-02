@@ -1,7 +1,0 @@
-
-            Test: ForumPost on mobile
-            Reference size: 98789 bytes
-            Test size: 93964 bytes
-            Images match: No
-            Visual differences detected!
-          

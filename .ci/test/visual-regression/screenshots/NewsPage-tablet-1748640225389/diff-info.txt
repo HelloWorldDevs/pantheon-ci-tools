@@ -1,7 +1,0 @@
-
-            Test: NewsPage on tablet
-            Reference size: 359338 bytes
-            Test size: 352873 bytes
-            Images match: No
-            Visual differences detected!
-          

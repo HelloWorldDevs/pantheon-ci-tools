@@ -1,7 +1,0 @@
-
-            Test: NewsPage on mobile
-            Reference size: 296195 bytes
-            Test size: 303462 bytes
-            Images match: No
-            Visual differences detected!
-          

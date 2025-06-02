@@ -1,7 +1,0 @@
-
-            Test: UserLogin on tablet
-            Reference size: 117261 bytes
-            Test size: 112567 bytes
-            Images match: No
-            Visual differences detected!
-          

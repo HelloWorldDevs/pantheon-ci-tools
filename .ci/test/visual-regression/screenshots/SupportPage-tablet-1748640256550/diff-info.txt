@@ -1,7 +1,0 @@
-
-            Test: SupportPage on tablet
-            Reference size: 352084 bytes
-            Test size: 346906 bytes
-            Images match: No
-            Visual differences detected!
-          

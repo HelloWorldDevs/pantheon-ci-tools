@@ -1,7 +1,0 @@
-
-            Test: ProductPage on tablet
-            Reference size: 237525 bytes
-            Test size: 225429 bytes
-            Images match: No
-            Visual differences detected!
-          

@@ -1,7 +1,0 @@
-
-            Test: UserLogin on desktop
-            Reference size: 125742 bytes
-            Test size: 120669 bytes
-            Images match: No
-            Visual differences detected!
-          

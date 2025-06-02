@@ -1,7 +1,0 @@
-
-            Test: ForumPost on tablet
-            Reference size: 140621 bytes
-            Test size: 132523 bytes
-            Images match: No
-            Visual differences detected!
-          

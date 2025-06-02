@@ -1,7 +1,0 @@
-
-            Test: ProductPage on mobile
-            Reference size: 207324 bytes
-            Test size: 185351 bytes
-            Images match: No
-            Visual differences detected!
-          
