@@ -14,7 +14,7 @@ const path = require('path');
 // Set up environment variables with defaults
 const ENV = {
   // Testing URL - try to get from environment variables or use Lando URL
-  TESTING_URL: process.env.TESTING_URL || 
+  TESTING_URL: process.env.MULTIDEV_SITE_URL || 
               process.env.LANDO_APP_URL || 
               (process.env.LANDO_APP_NAME ? `https://${process.env.LANDO_APP_NAME}.lndo.site` : null) ||
               'http://localhost',
