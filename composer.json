@@ -1,5 +1,5 @@
 {
-    "name": "helloworlddevs/pantheon-ci",
+    "name": "helloworlddevs/pantheon-ci-tools",
     "description": "Pantheon CI/CD pipeline configuration",
     "type": "library",
     "license": "MIT",
