@@ -46,32 +46,32 @@ class Installer
         // Copy CircleCI config
         self::copyFile(
             $sourceBase . '/files/.circleci/config.yml',
-            $destBase . '/.circleci/config.yml'
+            $destBase . '../.circleci/config.yml'
         );
         
         // Copy environment example if it doesn't exist
         if (!file_exists($destBase . '/.env.example')) {
             self::copyFile(
                 $sourceBase . '/.env.example',
-                $destBase . '/.env.example'
+                $destBase . '../.env.example'
             );
         }
         
         // Copy test files
         self::copyFile(
             $sourceBase . '/files/.ci/test/visual-regression/playwright.config.js',
-            $destBase . '/.ci/test/visual-regression/playwright.config.js'
+            $destBase . '../.ci/test/visual-regression/playwright.config.js'
         );
         
         self::copyFile(
             $sourceBase . '/files/.ci/test/visual-regression/playwright-tests.spec.js',
-            $destBase . '/.ci/test/visual-regression/playwright-tests.spec.js'
+            $destBase . '../.ci/test/visual-regression/playwright-tests.spec.js'
         );
         
         // Copy script files
         self::copyFile(
             $sourceBase . '/files/.ci/scripts/setup_vars.sh',
-            $destBase . '/.ci/scripts/setup_vars.sh'
+            $destBase . '../.ci/scripts/setup_vars.sh'
         );
         
         echo "Pantheon CI files installed to project root!\n";
