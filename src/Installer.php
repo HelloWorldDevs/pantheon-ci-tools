@@ -44,8 +44,12 @@ class Installer
     protected static function copyFiles()
     {
         file_put_contents('php://stderr', "\n[PANTHEON-CI-DEBUG] copyFiles() method started!\n");
+        
+        // Get the correct source base (this package)
         $sourceBase = dirname(__DIR__);
-        $destBase = dirname(dirname(dirname(__DIR__)));
+        
+        // Get the correct project root (find composer.json)
+        $destBase = self::findProjectRoot();
         
         file_put_contents('php://stderr', "[PANTHEON-CI-DEBUG] Source base: {$sourceBase}\n");
         file_put_contents('php://stderr', "[PANTHEON-CI-DEBUG] Destination base: {$destBase}\n");
@@ -113,5 +117,59 @@ class Installer
         } else {
             echo "Warning: Source file not found: {$source}\n";
         }
+    }
+    
+    /**
+     * Find the project root directory
+     * 
+     * This searches for composer.json going up directories until it finds
+     * a non-package composer.json (the root project)
+     * 
+     * @return string Project root path
+     */
+    protected static function findProjectRoot()
+    {
+        // Start with the current directory
+        $dir = getcwd();
+        
+        // Output for debugging
+        file_put_contents('php://stderr', "[PANTHEON-CI-DEBUG] Starting directory search from: {$dir}\n");
+        
+        // Safety counter to prevent infinite loop
+        $maxIterations = 10;
+        $iterations = 0;
+        
+        while ($iterations < $maxIterations) {
+            $iterations++;
+            
+            // Check if composer.json exists in this directory
+            $composerFile = $dir . '/composer.json';
+            file_put_contents('php://stderr', "[PANTHEON-CI-DEBUG] Checking for composer.json at: {$composerFile}\n");
+            
+            if (file_exists($composerFile)) {
+                $composerJson = json_decode(file_get_contents($composerFile), true);
+                
+                // If this is not our package and has no parent, it's likely the root project
+                if (!isset($composerJson['name']) || $composerJson['name'] !== 'helloworlddevs/pantheon-ci-tools') {
+                    file_put_contents('php://stderr', "[PANTHEON-CI-DEBUG] Found project root: {$dir}\n");
+                    return $dir;
+                }
+            }
+            
+            // Go up one directory
+            $parentDir = dirname($dir);
+            
+            // If we've reached the filesystem root, stop
+            if ($parentDir === $dir) {
+                break;
+            }
+            
+            $dir = $parentDir;
+        }
+        
+        // If we couldn't find the project root, default to current directory
+        $fallbackDir = getcwd();
+        file_put_contents('php://stderr', "[PANTHEON-CI-DEBUG] Could not determine project root, using fallback: {$fallbackDir}\n");
+        return $fallbackDir;
     }
 }
