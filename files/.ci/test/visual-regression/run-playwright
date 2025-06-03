@@ -42,22 +42,6 @@ curl -I "$DEV_SITE_URL" > /dev/null || echo "Warning: Failed to ping $DEV_SITE_U
 # Install required dependencies
 cd "$SCRIPT_DIR"
 
-if ! command -v npm &> /dev/null; then
-    echo "Installing Node.js and npm..."
-    apt-get update && apt-get install -y nodejs npm
-fi
-
-# Initialize package.json if it doesn't exist
-if [ ! -f package.json ]; then
-    echo "Initializing package.json..."
-    npm init -y
-fi
-
-# Install Playwright and its dependencies
-echo "Installing Playwright and dependencies..."
-npm install -D @playwright/test pixelmatch pngjs
-npx playwright install --with-deps chromium
-
 # Run the tests
 echo -e "\nRunning visual regression tests with Playwright..."
 
