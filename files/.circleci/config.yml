@@ -13,7 +13,7 @@ executors:
 
   playwright:
     docker:
-      - image: mcr.microsoft.com/playwright:v1.40.0-jammy
+      - image: mcr.microsoft.com/playwright:v1.44.0-jammy
     working_directory: ~/project
 
 defaults: &defaults
