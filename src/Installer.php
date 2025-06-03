@@ -73,16 +73,21 @@ class Installer
             $sourceBase . '/files/.ci/test/visual-regression/playwright.config.js',
             $destBase . '/.ci/test/visual-regression/playwright.config.js'
         );
-        
+
         self::copyFile(
             $sourceBase . '/files/.ci/test/visual-regression/playwright-tests.spec.js',
             $destBase . '/.ci/test/visual-regression/playwright-tests.spec.js'
         );
+
+        self::copyFile(
+            $sourceBase . '/files/.ci/test/visual-regression/run-playwright',
+            $destBase . '/.ci/test/visual-regression/run-playwright'
+        );
         
         // Copy script files
         self::copyFile(
-            $sourceBase . '/files/.ci/scripts/setup_vars.sh',
-            $destBase . '/.ci/scripts/setup_vars.sh'
+            $sourceBase . '/files/.ci/test/visual-regression/package.json',
+            $destBase . '/.ci/test/visual-regression/package.json'
         );
         
         echo "Pantheon CI files installed to project root!\n";
