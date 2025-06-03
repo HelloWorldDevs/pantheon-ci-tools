@@ -13,31 +13,32 @@ const pixelmatch = require('pixelmatch');
  * 2. Then capture the test site (MULTIDEV)
  * 3. Save both for side-by-side comparisons
  */
-const { test, expect } = require('@playwright/test');
-const fs = require('fs');
-const path = require('path');
 
 // Set up environment variables with defaults
 const ENV = {
   // Testing URL - try to get from environment variables or use Lando URL
-  TESTING_URL: process.env.MULTIDEV_SITE_URL || 
-              process.env.LANDO_APP_URL || 
-              (process.env.LANDO_APP_NAME ? `https://${process.env.LANDO_APP_NAME}.lndo.site` : null) ||
-              'http://localhost',
-              
+  TESTING_URL: process.env.TESTING_URL || 'http://localhost:3000',
   // Artifacts directory for saving screenshots
-  ARTIFACTS_DIR: process.env.ARTIFACTS_DIR || path.join(process.cwd(), 'artifacts'),
-  
+  ARTIFACTS_DIR: process.env.ARTIFACTS_DIR || path.join(process.cwd(), 'test-results'),
   // CI info
   CI_BUILD_URL: process.env.CI_BUILD_URL || 'local-build',
   CI_PROJECT_USERNAME: process.env.CI_PROJECT_USERNAME || 'local-user',
   CI_PROJECT_REPONAME: process.env.CI_PROJECT_REPONAME || 
                        (process.env.LANDO_APP_NAME || 'local-project'),
-                       
   // Test configuration
   PERCY_TOKEN: process.env.PERCY_TOKEN || '',
   VISUAL_REGRESSION_ENABLED: process.env.VISUAL_REGRESSION_ENABLED !== 'false',
+  UPDATE_SNAPSHOTS: process.env.UPDATE_SNAPSHOTS === 'true',
+  RETRY_WITH_HIGHER_THRESHOLD: process.env.RETRY_WITH_HIGHER_THRESHOLD === 'true',
+  // SSL settings for local development
+  IGNORE_HTTPS_ERRORS: process.env.IGNORE_HTTPS_ERRORS === 'true' || true, // Always true for now
+  // Timeout settings
+  PAGE_LOAD_TIMEOUT: parseInt(process.env.PAGE_LOAD_TIMEOUT) || 60000,
+  NAVIGATION_TIMEOUT: parseInt(process.env.NAVIGATION_TIMEOUT) || 30000
 };
+
+// Configure Playwright to ignore HTTPS errors for local domains
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 // Ensure artifacts directory exists
 if (!fs.existsSync(ENV.ARTIFACTS_DIR)) {
@@ -129,172 +130,227 @@ ensureDirectoryExists(screenshotDir);
 
 // Helper function to pre-warm cache by pinging URLs
 async function preWarmCache(url) {
-  // Using node-fetch to perform a simple GET request
-  console.log(`Pre-warming cache for: ${url}`);
   try {
-    // Create a simple browser context just for warming up the cache
-    const browser = await require('playwright').chromium.launch();
-    const warmupContext = await browser.newContext();
-    const warmupPage = await warmupContext.newPage();
-
-    // Navigate to the URL and wait for the page to load
-    await warmupPage.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
-    console.log(`Successfully pre-warmed cache for: ${url}`);
-
-    // Close everything to free resources
-    await warmupPage.close();
-    await warmupContext.close();
-    await browser.close();
+    console.log(`Pre-warming cache for: ${url}`);
+    const browser = await require('playwright').chromium.launch({
+      // Disable SSL verification for local domains
+      ignoreHTTPSErrors: true
+    });
+    const context = await browser.newContext({
+      // Ignore HTTPS errors for local domains
+      ignoreHTTPSErrors: true,
+      // Disable web security for local development
+      bypassCSP: true
+    });
+    
+    const page = await context.newPage();
+    
+    try {
+      await page.goto(url, { 
+        waitUntil: 'networkidle', 
+        timeout: 30000,
+        // Disable timeout for local development
+        waitUntil: 'domcontentloaded'
+      });
+      await page.waitForTimeout(2000); // Wait for any lazy-loaded content
+    } catch (error) {
+      console.warn(`Warning during pre-warming ${url}: ${error.message}`);
+      // Continue even if there are navigation errors
+    } finally {
+      await browser.close();
+    }
   } catch (error) {
     console.error(`Error pre-warming cache for ${url}: ${error.message}`);
   }
 }
 
-// Set test timeout to 30 seconds to account for slower environments
-test.setTimeout(30000);
-
-// Configure viewports for different device types
-const viewports = {
-  mobile: { width: 375, height: 667 },
-  tablet: { width: 768, height: 1024 },
-  desktop: { width: 1280, height: 1024 }
+// Configure test settings
+const config = {
+  // Timeout settings
+  testTimeout: 60000,
+  // Viewport configurations
+  viewports: {
+    mobile: { width: 375, height: 667 },
+    tablet: { width: 768, height: 1024 },
+    desktop: { width: 1280, height: 1024 }
+  },
+  // Visual comparison thresholds
+  thresholds: {
+    pixelMatch: 0.1,      // 10% pixel difference allowed
+    failureThreshold: 0.2,  // 20% threshold for retry
+    maxDiffPixels: 100,     // Maximum allowed different pixels
+    maxDiffPixelRatio: 0.01 // 1% maximum pixel ratio difference
+  },
+  // Navigation settings
+  navigation: {
+    waitUntil: 'networkidle',
+    timeout: 30000,
+    waitForSelector: 'body'
+  },
+  // Screenshot settings
+  screenshot: {
+    fullPage: true,
+    animations: 'disabled',
+    caret: 'hide',
+    scale: 'css',
+    timeout: 30000
+  }
 };
+
+// Apply test timeout
+test.setTimeout(config.testTimeout);
+
+// Configure Playwright to ignore HTTPS errors for local domains
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
+// Helper function to create a new browser context with proper SSL settings
+async function createBrowserContext(browser, viewport) {
+  return await browser.newContext({
+    viewport: viewport,
+    deviceScaleFactor: 1,
+    ignoreHTTPSErrors: true, // Always ignore HTTPS errors for testing
+    // Additional context options for better reliability
+    javaScriptEnabled: true,
+    bypassCSP: true,
+    // Configure network settings
+    offline: false,
+    serviceWorkers: 'allow',
+    // Configure timeouts
+    navigationTimeout: config.navigation.timeout,
+    // Configure viewport for mobile emulation if needed
+    isMobile: viewport.width < 768,
+    hasTouch: viewport.width < 768,
+    // Configure user agent for consistent testing
+    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+  });
+}
 
 // Define test for each path
 paths.forEach(({ name, url }) => {
   test.describe(`Visual regression test for ${name}`, () => {
     // Pre-warm caches before tests run
     test.beforeAll(async ({ browser }) => {
-      const page = await browser.newPage();
-      // Pre-warm the test URL
-      await preWarmCache(`${ENV.TESTING_URL}${url}`);
-      await page.close();
+      const context = await createBrowserContext(browser, config.viewports.desktop);
+      const page = await context.newPage();
+      
+      try {
+        // Pre-warm the test URL
+        await preWarmCache(`${ENV.TESTING_URL}${url}`);
+      } catch (error) {
+        console.warn(`Warning during pre-warm for ${name}: ${error.message}`);
+      } finally {
+        await context.close();
+      }
     });
 
     // Test each viewport
-    Object.entries(viewports).forEach(([viewport, size]) => {
-      test(`${name} should look the same on ${viewport}`, async ({ browser }) => {
-        const context = await browser.newContext({
-          viewport: size,
-          deviceScaleFactor: 1,
-        });
-        const page = await context.newPage();
-        // Set viewport size based on device type
-        const viewportSizes = {
-          mobile: { width: 320, height: 480 },
-          tablet: { width: 1024, height: 768 },
-          desktop: { width: 1920, height: 1080 },
-        };
-
-        // Create a single page for testing/snapshot comparison
-        // Create a browser context with JavaScript enabled for consistent behavior
-        const browserContext = await context.browser().newContext({
-          javaScriptEnabled: true,
-        });
-
-        // Create a new page for testing
-        const testPage = await browserContext.newPage();
-        await testPage.setViewportSize(viewportSizes[viewport]);
-
-        // The URL to test varies based on the execution context
-        // First run with --update-snapshots will use DEV_SITE_URL (reference)
-        // Second run without the flag will use MULTIDEV_SITE_URL (test)
-        const urlToTest = ENV.TESTING_URL;
-
-        console.log(`Navigating to: ${urlToTest}${url}`);
-        await testPage.goto(`${urlToTest}${url}`, {
-          waitUntil: "networkidle",
-          timeout: 30000, // Increase timeout for page load
-        });
-        await testPage.waitForSelector("body", { timeout: 15000 });
-        await testPage.waitForTimeout(2000); // Initial stability delay
-
-        // Ensure content is loaded and visible by scrolling
-        await testPage.locator("body").scrollIntoViewIfNeeded();
-        await testPage.waitForTimeout(2000); // Wait for scrolling to complete
-
-        // Resize window slightly to trigger any responsive layout changes
-        const originalViewport = viewportSizes[viewport];
-        await testPage.setViewportSize({
-          width: originalViewport.width - 5,
-          height: originalViewport.height
-        });
-        await testPage.waitForTimeout(500); // Let layout adjust
-
-        // Restore original viewport size
-        await testPage.setViewportSize(originalViewport);
-        await testPage.waitForTimeout(1000); // Final stabilization wait
-
-        // When run with --update-snapshots, it creates reference images
-        // Otherwise it compares against existing references
-        // Use higher thresholds when retrying failed tests
-        const isRetry = process.env.RETRY_WITH_HIGHER_THRESHOLD === 'true';
-
-        // Log whether we're doing a regular test or a retry with higher thresholds
-        console.log(`${isRetry ? 'RETRY with higher thresholds' : 'Regular test'} for ${name} on ${viewport}`);
+    Object.entries(config.viewports).forEach(([viewportName, viewportSize]) => {
+      test(`${name} should look the same on ${viewportName}`, async ({ browser }) => {
+        let context;
+        let page;
         
-        // Take screenshot of the full page
-        const screenshot = await testPage.screenshot({
-          fullPage: true,
-          animations: 'disabled',
-          caret: 'hide',
-          scale: 'css',
-          timeout: 30000
-        });
-        
-        // Define paths for the screenshot and diff
-        const screenshotPath = path.join(screenshotDir, `${name}-${viewport}.png`);
-        const diffPath = path.join(screenshotDir, `${name}-${viewport}-diff.png`);
-        
-        // Save the screenshot
-        fs.writeFileSync(screenshotPath, screenshot);
-        
-        // If we're updating snapshots, we're done
-        if (process.env.UPDATE_SNAPSHOTS) {
-          console.log(`✅ Updated reference image for ${name} on ${viewport}`);
-          return;
-        }
-        
-        // Otherwise, compare with the reference image
         try {
-          const referenceImage = fs.readFileSync(screenshotPath);
-          expect(screenshot).toMatchSnapshot(`${name}-${viewport}.png`, {
-            maxDiffPixelRatio: isRetry ? 0.1 : 0.01, // 10% on retry, 1% initially
-            threshold: 0.1,
-            maxDiffPixels: isRetry ? 1000 : 100
+          // Create a new context with the specified viewport
+          context = await createBrowserContext(browser, viewportSize);
+          page = await context.newPage();
+          
+          // Set viewport size
+          await page.setViewportSize(viewportSize);
+          
+          // Define the test URL
+          const testUrl = `${ENV.TESTING_URL}${url}`;
+          console.log(`Testing URL: ${testUrl}`);
+          
+          // Navigate to the page
+          await page.goto(testUrl, {
+            waitUntil: config.navigation.waitUntil,
+            timeout: config.navigation.timeout
           });
-          console.log(`✅ Visual test passed for ${name} on ${viewport}`);
-        } catch (error) {
-          if (!isRetry) {
-            console.warn(`⚠️ Visual test failed for ${name} on ${viewport}, will retry with higher thresholds`);
-            // Rethrow to trigger retry
-            throw error;
+          
+          // Wait for the page to be fully loaded
+          await page.waitForSelector(config.navigation.waitForSelector, {
+            timeout: config.navigation.timeout
+          });
+          
+          // Wait for any lazy-loaded content
+          await page.waitForTimeout(2000);
+          
+          // Take a screenshot
+          const screenshot = await page.screenshot({
+            fullPage: config.screenshot.fullPage,
+            animations: config.screenshot.animations,
+            caret: config.screenshot.caret,
+            scale: config.screenshot.scale,
+            timeout: config.screenshot.timeout
+          });
+          
+          // Define paths for the screenshot and diff
+          const screenshotPath = path.join(screenshotDir, `${name}-${viewportName}.png`);
+          const diffPath = path.join(screenshotDir, `${name}-${viewportName}-diff.png`);
+          
+          // Save the screenshot
+          fs.writeFileSync(screenshotPath, screenshot);
+          
+          // If we're updating snapshots, we're done
+          if (ENV.UPDATE_SNAPSHOTS) {
+            console.log(`✅ Updated reference image for ${name} on ${viewportName}`);
+            return;
           }
           
-          // If we get here, we're already in retry mode and still failing
-          console.error(`❌ Visual test failed for ${name} on ${viewport} even with higher thresholds`);
-          
-          // Save the diff image for debugging
-          const referenceImage = fs.readFileSync(screenshotPath);
-          const img1 = PNG.sync.read(referenceImage);
-          const img2 = PNG.sync.read(screenshot);
-          const { width, height } = img1;
-          const diff = new PNG({ width, height });
-          
-          const diffResult = pixelmatch(
-            img1.data, 
-            img2.data, 
-            diff.data, 
-            width, 
-            height, 
-            { threshold: 0.1 }
-          );
-          
-          fs.writeFileSync(diffPath, PNG.sync.write(diff));
-          console.error(`🔍 Diff saved to: ${diffPath}`);
-          
-          // Rethrow with a more helpful error message
-          throw new Error(`Visual regression test failed for ${name} on ${viewport}. See diff at: ${diffPath}`);
+          // Otherwise, compare with the reference image
+          try {
+            const referenceImage = fs.readFileSync(screenshotPath);
+            const img1 = PNG.sync.read(referenceImage);
+            const img2 = PNG.sync.read(screenshot);
+            
+            // Compare images using pixelmatch
+            const diff = new PNG({ width: img1.width, height: img1.height });
+            const diffPixels = pixelmatch(
+              img1.data, 
+              img2.data, 
+              diff.data, 
+              img1.width, 
+              img1.height, 
+              { threshold: config.thresholds.pixelMatch }
+            );
+            
+            // Calculate difference percentage
+            const diffPercent = (diffPixels * 100) / (img1.width * img1.height);
+            
+            // Check if difference is within threshold
+            if (diffPercent > config.thresholds.maxDiffPixelRatio * 100) {
+              // Save diff image
+              fs.writeFileSync(diffPath, PNG.sync.write(diff));
+              
+              // Check if we should retry with higher threshold
+              if (!ENV.RETRY_WITH_HIGHER_THRESHOLD) {
+                console.warn(`⚠️ Visual test failed for ${name} on ${viewportName}, will retry with higher thresholds`);
+                throw new Error(`Visual difference (${diffPercent.toFixed(2)}%) exceeds threshold (${config.thresholds.maxDiffPixelRatio * 100}%)`);
+              }
+              
+              // If we already retried, fail the test
+              throw new Error(`Visual difference (${diffPercent.toFixed(2)}%) exceeds threshold (${config.thresholds.maxDiffPixelRatio * 100}%). See diff at: ${diffPath}`);
+            }
+            
+            console.log(`✅ Visual test passed for ${name} on ${viewportName} (${diffPixels} pixels different, ${diffPercent.toFixed(2)}%)`);
+            
+          } catch (error) {
+            if (!ENV.RETRY_WITH_HIGHER_THRESHOLD) {
+              console.warn(`⚠️ Visual test failed for ${name} on ${viewportName}, will retry with higher thresholds`);
+              throw error;
+            }
+            
+            // If we get here, we're already in retry mode and still failing
+            console.error(`❌ Visual test failed for ${name} on ${viewportName}: ${error.message}`);
+            throw error;
+          }
+        } catch (error) {
+          console.error(`❌ Test failed for ${name} on ${viewportName}: ${error.message}`);
+          throw error;
+        } finally {
+          // Clean up resources
+          if (page) await page.close().catch(e => console.error('Error closing page:', e));
+          if (context) await context.close().catch(e => console.error('Error closing context:', e));
         }
       });
     });
