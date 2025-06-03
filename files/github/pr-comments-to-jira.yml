@@ -1,0 +1,80 @@
+name: PR Comments to Jira
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+jobs:
+  process_pr_to_jira:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract Jira issue key
+        id: extract_issue_key
+        run: |
+          # Try to get issue key from PR title
+          ISSUE_KEY=$(echo "${{ github.event.pull_request.title }}" | grep -o '[A-Z]\+-[0-9]\+' || echo "")
+
+          # If not found in title, try PR body
+          if [ -z "$ISSUE_KEY" ] && [ -n "${{ github.event.pull_request.body }}" ]; then
+            ISSUE_KEY=$(echo "${{ github.event.pull_request.body }}" | grep -o '[A-Z]\+-[0-9]\+' | head -1 || echo "")
+          fi
+
+          # If still not found, try branch name
+          if [ -z "$ISSUE_KEY" ]; then
+            ISSUE_KEY=$(echo "${{ github.head_ref || github.ref_name }}" | grep -o '[A-Z]\+-[0-9]\+' | head -1 || echo "")
+          fi
+
+          echo "ISSUE_KEY=$ISSUE_KEY" >> $GITHUB_OUTPUT
+          echo "Extracted Jira issue key: $ISSUE_KEY"
+
+      - name: Post to Jira
+        if: steps.extract_issue_key.outputs.ISSUE_KEY != ''
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+        run: |
+          # Prepare the comment
+          COMMENT="PR ${{ github.event.pull_request.title }}: ${{ github.event.pull_request.html_url }}"
+          
+          # Create the JSON payload
+          PAYLOAD=$(jq -n \
+            --arg comment "$COMMENT" \
+            '{
+              "body": {
+                "type": "doc",
+                "version": 1,
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "PR Opened: "
+                      },
+                      {
+                        "type": "text",
+                        "text": $comment,
+                        "marks": [
+                          {
+                            "type": "link",
+                            "attrs": {
+                              "href": $comment
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }')
+
+          # Post comment to Jira
+          curl -X POST \
+            -H "Authorization: Basic $(echo -n $JIRA_USER_EMAIL:$JIRA_API_TOKEN | base64)" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            "$JIRA_BASE_URL/rest/api/3/issue/${{ steps.extract_issue_key.outputs.ISSUE_KEY }}/comment"
+
+          echo "Comment posted to Jira issue ${{ steps.extract_issue_key.outputs.ISSUE_KEY }}"

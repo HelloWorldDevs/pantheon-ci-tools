@@ -58,12 +58,12 @@ class Installer
         // File will be added in a future version if needed
 
         $this->copyFile(
-            $sourceBase . '/.github/workflows/delete-multidev-on-merge.yml',
+            $sourceBase . '/github/delete-multidev-on-merge.yml',
             $destBase . '/.github/workflows/delete-multidev-on-merge.yml'
         );
 
         $this->copyFile(
-            $sourceBase . '/.github/workflows/pr-comments-to-jira.yml',
+            $sourceBase . '/github/pr-comments-to-jira.yml',
             $destBase . '/.github/workflows/pr-comments-to-jira.yml'
         );
 
