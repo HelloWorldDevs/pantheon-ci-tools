@@ -53,10 +53,20 @@ class Installer
             $sourceBase . '/.circleci/config.yml',
             $destBase . '/.circleci/config.yml'
         );
-        
+
         // Skip .env.example copying for now
         // File will be added in a future version if needed
-        
+
+        $this->copyFile(
+            $sourceBase . '/.github/workflows/delete-multidev-on-merge.yml',
+            $destBase . '/.github/workflows/delete-multidev-on-merge.yml'
+        );
+
+        $this->copyFile(
+            $sourceBase . '/.github/workflows/pr-comments-to-jira.yml',
+            $destBase . '/.github/workflows/pr-comments-to-jira.yml'
+        );
+
         // Copy test files
         $this->copyFile(
             $sourceBase . '/.ci/test/visual-regression/playwright.config.js',

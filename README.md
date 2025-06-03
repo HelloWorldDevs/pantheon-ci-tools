@@ -1,34 +1,77 @@
-# Pantheon CI/CD Pipeline
+# Pantheon CI/CD Tools
 
-A Composer package that sets up CI/CD pipeline for Pantheon projects with GitHub and CircleCI.
+A Composer plugin that sets up CI/CD pipelines for Pantheon projects with CircleCI, including visual regression testing and automated deployments.
 
 ## Features
 
-- Automated deployment to Pantheon multidev environments
-- Visual regression testing
-- GitHub PR integration
-- Jira ticket linking
-- Automated cleanup of multidev environments
+- 🚀 **Automated Deployments** - Push to deploy to Pantheon multidev environments
+- 👁️ **Visual Regression Testing** - Catch visual bugs with Playwright
+- 🔗 **GitHub Integration** - PR status checks and comments
+- 🧹 **Automated Cleanup** - Remove stale multidev environments
+- 🛠️ **Zero Configuration** - Works out of the box with sensible defaults
 
 ## Installation
 
 1. Add the package to your project:
 
 ```bash
-composer require --dev helloworlddevs/pantheon-ci
+composer require --dev helloworlddevs/pantheon-ci-tools
 ```
 
-2. Set up your environment variables by copying the example file:
+2. Allow the plugin to run:
 
 ```bash
-cp vendor/helloworlddevs/pantheon-ci/files/.env.example .env
+composer config allow-plugins.helloworlddevs/pantheon-ci-tools true
 ```
 
-3. Update the `.env` file with your specific configuration.
+## Visual Regression Testing
 
-## Required Environment Variables
+### Setup
 
-Create a `.env` file in your project root with the following variables:
+1. Create a `test_routes.json` file in your project root with the paths you want to test:
+
+```json
+{
+  "home": "/",
+  "about": "/about",
+  "contact": "/contact"
+}
+```
+
+2. The test runner will automatically find this file in your project root or any parent directory (up to 4 levels up).
+
+### Running Tests Locally
+
+1. Install dependencies:
+```bash
+cd .ci/test/visual-regression
+npm install
+```
+
+2. Run tests:
+```bash
+TESTING_URL=http://your-local-site npx playwright test
+```
+
+### Configuration
+
+Customize visual testing in `playwright.config.js`:
+- Adjust viewport sizes
+- Set thresholds for pixel differences
+- Configure test timeouts
+
+## CI/CD Pipeline
+
+The plugin sets up a CircleCI pipeline that:
+
+1. Runs on every PR
+2. Deploys to a multidev environment
+3. Runs visual regression tests
+4. Reports results back to GitHub
+
+### Required Environment Variables
+
+Set these in your CI environment:
 
 ```env
 # Required
@@ -41,13 +84,26 @@ GITHUB_REPO=auto-detected
 PANTHEON_ENV=dev
 ```
 
-## Configuration
+## Troubleshooting
 
-The package will automatically set up the following files in your project:
+### Visual Tests Failing
 
-- `.circleci/config.yml` - CircleCI configuration
-- `.github/workflows/` - GitHub Actions workflows
-- `.ci/` - Custom CI scripts and configurations
+1. Check the test artifacts for screenshots of failures
+2. Adjust thresholds in `playwright.config.js` if needed
+3. Update baseline images if the changes are intentional:
+   ```bash
+   UPDATE_SNAPSHOTS=true npx playwright test
+   ```
+
+### Deployment Issues
+
+1. Verify your Terminus token has the correct permissions
+2. Check the CircleCI logs for detailed error messages
+3. Ensure your Pantheon site is properly connected to your GitHub repository
+
+## License
+
+MIT
 
 ## Updating
 

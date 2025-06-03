@@ -1,3 +1,9 @@
+const { test, expect } = require('@playwright/test');
+const fs = require('fs');
+const path = require('path');
+const { PNG } = require('pngjs');
+const pixelmatch = require('pixelmatch');
+
 /**
  * Visual Regression Testing with Playwright
  *
@@ -144,20 +150,35 @@ async function preWarmCache(url) {
   }
 }
 
+// Set test timeout to 30 seconds to account for slower environments
+test.setTimeout(30000);
+
+// Configure viewports for different device types
+const viewports = {
+  mobile: { width: 375, height: 667 },
+  tablet: { width: 768, height: 1024 },
+  desktop: { width: 1280, height: 1024 }
+};
+
 // Define test for each path
 paths.forEach(({ name, url }) => {
   test.describe(`Visual regression test for ${name}`, () => {
     // Pre-warm caches before tests run
-    test.beforeAll(async () => {
-      // Pre-warm both reference and test URLs
+    test.beforeAll(async ({ browser }) => {
+      const page = await browser.newPage();
+      // Pre-warm the test URL
       await preWarmCache(`${ENV.TESTING_URL}${url}`);
-      // Add a delay to ensure caches are fully built
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await page.close();
     });
 
     // Test each viewport
-    ['mobile', 'tablet', 'desktop'].forEach(viewport => {
-      test(`${name} should look the same on ${viewport}`, async ({ context }) => {
+    Object.entries(viewports).forEach(([viewport, size]) => {
+      test(`${name} should look the same on ${viewport}`, async ({ browser }) => {
+        const context = await browser.newContext({
+          viewport: size,
+          deviceScaleFactor: 1,
+        });
+        const page = await context.newPage();
         // Set viewport size based on device type
         const viewportSizes = {
           mobile: { width: 320, height: 480 },
@@ -211,15 +232,70 @@ paths.forEach(({ name, url }) => {
 
         // Log whether we're doing a regular test or a retry with higher thresholds
         console.log(`${isRetry ? 'RETRY with higher thresholds' : 'Regular test'} for ${name} on ${viewport}`);
-
-        await expect(testPage).toHaveScreenshot(`${name.replace(/ /g, "-")}-${viewport}.png`, {
-          maxDiffPixelRatio: isRetry ? 0.2 : 0.1,      // Double the allowed diff ratio on retry
-          threshold: isRetry ? 0.3 : 0.2,             // Higher color difference threshold on retry
-          maxDiffPixels: isRetry ? 500 : 100,         // Allow more different pixels on retry
+        
+        // Take screenshot of the full page
+        const screenshot = await testPage.screenshot({
+          fullPage: true,
+          animations: 'disabled',
+          caret: 'hide',
+          scale: 'css',
+          timeout: 30000
         });
-
-        // Close the test page
-        await testPage.close();
+        
+        // Define paths for the screenshot and diff
+        const screenshotPath = path.join(screenshotDir, `${name}-${viewport}.png`);
+        const diffPath = path.join(screenshotDir, `${name}-${viewport}-diff.png`);
+        
+        // Save the screenshot
+        fs.writeFileSync(screenshotPath, screenshot);
+        
+        // If we're updating snapshots, we're done
+        if (process.env.UPDATE_SNAPSHOTS) {
+          console.log(`✅ Updated reference image for ${name} on ${viewport}`);
+          return;
+        }
+        
+        // Otherwise, compare with the reference image
+        try {
+          const referenceImage = fs.readFileSync(screenshotPath);
+          expect(screenshot).toMatchSnapshot(`${name}-${viewport}.png`, {
+            maxDiffPixelRatio: isRetry ? 0.1 : 0.01, // 10% on retry, 1% initially
+            threshold: 0.1,
+            maxDiffPixels: isRetry ? 1000 : 100
+          });
+          console.log(`✅ Visual test passed for ${name} on ${viewport}`);
+        } catch (error) {
+          if (!isRetry) {
+            console.warn(`⚠️ Visual test failed for ${name} on ${viewport}, will retry with higher thresholds`);
+            // Rethrow to trigger retry
+            throw error;
+          }
+          
+          // If we get here, we're already in retry mode and still failing
+          console.error(`❌ Visual test failed for ${name} on ${viewport} even with higher thresholds`);
+          
+          // Save the diff image for debugging
+          const referenceImage = fs.readFileSync(screenshotPath);
+          const img1 = PNG.sync.read(referenceImage);
+          const img2 = PNG.sync.read(screenshot);
+          const { width, height } = img1;
+          const diff = new PNG({ width, height });
+          
+          const diffResult = pixelmatch(
+            img1.data, 
+            img2.data, 
+            diff.data, 
+            width, 
+            height, 
+            { threshold: 0.1 }
+          );
+          
+          fs.writeFileSync(diffPath, PNG.sync.write(diff));
+          console.error(`🔍 Diff saved to: ${diffPath}`);
+          
+          // Rethrow with a more helpful error message
+          throw new Error(`Visual regression test failed for ${name} on ${viewport}. See diff at: ${diffPath}`);
+        }
       });
     });
   });
