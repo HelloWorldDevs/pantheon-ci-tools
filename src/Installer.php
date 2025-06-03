@@ -124,8 +124,12 @@ class Installer
         }
         
         // Make scripts executable
-        if (strpos($dest, '.sh') !== false || strpos($dest, 'run-') === 0) {
+        $filename = basename($dest);
+        if (strpos($filename, '.sh') !== false || 
+            strpos($filename, 'run-') === 0 || 
+            $filename === 'run-playwright') {
             chmod($dest, 0755);
+            $this->io->write(sprintf('  - Made executable: %s', str_replace(getcwd() . '/', '', $dest)));
         }
         
         $this->io->write(sprintf('  - Copied: %s', str_replace(getcwd() . '/', '', $dest)));
