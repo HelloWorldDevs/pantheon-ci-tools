@@ -204,7 +204,7 @@ jobs:
       # [notify] Notify Slack on failure
       - slack/notify:
           event: fail
-          channel: C047305PPB8
+          channel: C06G970M5PF
           template: basic_fail_1
       # [notify][jira] Send notification to Jira
       - jira/notify:

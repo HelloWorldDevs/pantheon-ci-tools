@@ -206,11 +206,11 @@ const config = {
   }
 };
 
-// Apply test timeout
-test.setTimeout(config.testTimeout);
-
 // Configure Playwright to ignore HTTPS errors for local domains
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
+// Set test timeout for all tests
+test.describe.configure({ timeout: config.testTimeout });
 
 // Helper function to create a new browser context with proper SSL settings
 async function createBrowserContext(browser, viewport) {
