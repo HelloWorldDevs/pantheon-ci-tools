@@ -11,6 +11,11 @@ executors:
       - image: quay.io/pantheon-public/build-tools-ci:8.x-php8.1
     working_directory: ~/project
 
+  playwright:
+    docker:
+      - image: mcr.microsoft.com/playwright:v1.40.0-jammy
+    working_directory: ~/project
+
 defaults: &defaults
   executor: pantheon
   working_directory: ~/project
@@ -83,9 +88,6 @@ jobs:
           paths:
             - $HOME/.composer/cache
       # [setup][deploy] SSH setup for deployment
-      - add_ssh_keys:
-          fingerprints:
-            - "eRc4KsNbmwxFFwq7a26Fg4XnCyv8KI46TLhOoPgcB/A"
       - run:
           name: Preparing code for Pantheon
           command: |
@@ -145,13 +147,13 @@ jobs:
           paths:
             - .  # This includes all files, including .git
 
-  test_and_notify:
-    executor: backstopjs
+  # Playwright visual regression testing job
+  playwright_visual_tests:
+    executor: playwright
     resource_class: medium
     working_directory: /tmp/workspace
     environment:
-      BACKSTOPJS_VERSION: 6.3.25
-      ARTIFACTS_DIR: ${CIRCLE_BUILD_URL}/artifacts/${CIRCLE_NODE_INDEX}/artifacts
+      ARTIFACTS_FULL_DIR: /tmp/workspace/artifacts
     steps:
       # [persist][vars] Attach workspace to load saved environment variables and code
       - attach_workspace:
@@ -163,7 +165,6 @@ jobs:
       - run:
           name: Install jq
           command: apt-get update && apt-get install -y jq
-
       # [vars] Load environment variables from the workspace
       - run:
           name: Load environment variables
@@ -177,81 +178,48 @@ jobs:
               source $BASH_ENV
 
               # Debug: Show key environment variables
-              echo "✅ Environment variables loaded successfully"
-              echo "MULTIDEV_SITE_URL: ${MULTIDEV_SITE_URL}"
-              echo "DEV_SITE_URL: ${DEV_SITE_URL}"
+              echo "DEV_SITE_URL: $DEV_SITE_URL"
+              echo "MULTIDEV_SITE_URL: $MULTIDEV_SITE_URL"
             else
-              echo "ERROR: Missing environment variable file!"
-              exit 1
+              echo "Warning: Environment variables file not found"
             fi
 
-      # [test][setup] Set up visual regression test environment
+      # [test] Run visual regression tests with Playwright
       - run:
-          name: Set up visual regression tests
+          name: Run Playwright visual regression tests
           command: |
-            # Navigate to test directory
-            cd ${CIRCLE_WORKING_DIRECTORY}/.ci/test/visual-regression
-
-            # Make script executable
-            chmod +x run
-
-            # Create artifacts directory
-            mkdir -p "/tmp/artifacts"
-
-            # Export artifacts directory variables
-            export ARTIFACTS_DIR="/tmp/artifacts"
-            export ARTIFACTS_FULL_DIR="${ARTIFACTS_DIR}"
-
-            # Show test environment
-            echo "\n=== Visual Regression Test Ready ==="
-            echo "Test URL: ${MULTIDEV_SITE_URL}"
-            echo "Reference URL: ${DEV_SITE_URL}"
-            echo "Artifacts directory: ${ARTIFACTS_DIR}"
+            cd /tmp/workspace/.ci/test/visual-regression
+            chmod +x ./run-playwright
+            ./run-playwright
 
 
-      # [test][core] Run visual regression tests
-      - run:
-          name: Run visual regression tests
-          command: |
-            # Run the visual regression tests
-            echo "\n=== Running visual regression tests ==="
-            echo "Testing URLs:"
-            echo "- Test URL: ${MULTIDEV_SITE_URL}"
-            echo "- Reference URL: ${DEV_SITE_URL}"
-
-
-            circleci tests glob "./.ci/test/visual-regression/run" | circleci tests run --command="./.ci/test/visual-regression/run"
-
-      # [artifacts][test] Store test artifacts for viewing in CircleCI UI
+      # [artifacts] Store screenshots with visual comparison reports
       - store_artifacts:
-          path: /tmp/artifacts/backstop_data
-          destination: backstop_data
-      # [test][report] Store test results for CircleCI's test summary
-      - store_test_results:
-          path: /tmp/artifacts/backstop_data/ci_report/xunit.xml
+          path: /tmp/workspace/.ci/test/visual-regression/playwright-report
 
+      # [artifacts] Store JUnit test results
+      - store_test_results:
+          path: /tmp/workspace/.ci/test/visual-regression/test-results
+
+      # [notify] Notify Slack on failure
+      - slack/notify:
+          event: fail
+          channel: C047305PPB8
+          template: basic_fail_1
       # [notify][jira] Send notification to Jira
       - jira/notify:
           environment: testing
           job_type: deployment
           pipeline_id: << pipeline.id >>
           pipeline_number: << pipeline.number >>
-          debug: true
-
-      # Simple Slack notification approach that avoids complex JSON handling
-      - slack/notify:
-          event: fail
-          channel: ${SLACK_DEFAULT_CHANNEL}
-          template: basic_fail_1
-
 # [workflow] Main build, test, and notification workflow
 workflows:
   build_test_notify:
     jobs:
       # [job] Primary build and deployment job
       - build_and_deploy
-      # [job] Test and notification job with dependency on build job
-      - test_and_notify:
+      # [job] Playwright visual regression tests
+      - playwright_visual_tests:
           requires:
             - build_and_deploy
           # [context] Shared secrets and environment variables
