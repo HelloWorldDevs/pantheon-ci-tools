@@ -2,38 +2,30 @@
 
 namespace HelloWorldDevs\PantheonCI;
 
-use Composer\Script\Event;
+use Composer\IO\IOInterface;
 
 class Installer
 {
     /**
-     * Post package install callback
-     *
-     * @param Event $event
-     * @return void
+     * @var IOInterface
      */
-    public static function postInstall(Event $event)
+    protected $io;
+
+    /**
+     * @param IOInterface $io
+     */
+    public function __construct(IOInterface $io)
     {
-        // Debug output to confirm this method is being called
-        file_put_contents('php://stderr', "\n\n[PANTHEON-CI-DEBUG] postInstall() method called!\n");
-        echo "\n\n[PANTHEON-CI] Starting installation...\n";
-        self::copyFiles();
-        echo "[PANTHEON-CI] Installation complete\n\n";
+        $this->io = $io;
     }
 
     /**
-     * Post package update callback
-     *
-     * @param Event $event
-     * @return void
+     * Main install method
      */
-    public static function postUpdate(Event $event)
+    public function install()
     {
-        // Debug output to confirm this method is being called
-        file_put_contents('php://stderr', "\n\n[PANTHEON-CI-DEBUG] postUpdate() method called!\n");
-        echo "\n\n[PANTHEON-CI] Starting update...\n";
-        self::copyFiles();
-        echo "[PANTHEON-CI] Update complete\n\n";
+        $this->io->write('  - Copying CI configuration files...');
+        $this->copyFiles();
     }
 
     /**
@@ -41,27 +33,24 @@ class Installer
      *
      * @return void
      */
-    protected static function copyFiles()
+    protected function copyFiles()
     {
-        file_put_contents('php://stderr', "\n[PANTHEON-CI-DEBUG] copyFiles() method started!\n");
-        
         // Get the correct source base (this package)
-        $sourceBase = dirname(__DIR__);
+        $sourceBase = dirname(__DIR__) . '/files';
+        $this->io->write(sprintf('  - Source directory: %s', $sourceBase));
         
         // Get the correct project root (find composer.json)
-        $destBase = self::findProjectRoot();
-        
-        file_put_contents('php://stderr', "[PANTHEON-CI-DEBUG] Source base: {$sourceBase}\n");
-        file_put_contents('php://stderr', "[PANTHEON-CI-DEBUG] Destination base: {$destBase}\n");
+        $destBase = $this->findProjectRoot();
+        $this->io->write(sprintf('  - Destination directory: %s', $destBase));
         
         // Ensure destination directories exist
-        self::ensureDirectoryExists($destBase . '/.circleci');
-        self::ensureDirectoryExists($destBase . '/.ci/test/visual-regression');
-        self::ensureDirectoryExists($destBase . '/.ci/scripts');
+        $this->ensureDirectoryExists($destBase . '/.circleci');
+        $this->ensureDirectoryExists($destBase . '/.ci/test/visual-regression');
+        $this->ensureDirectoryExists($destBase . '/.ci/scripts');
         
         // Copy CircleCI config
-        self::copyFile(
-            $sourceBase . '/files/.circleci/config.yml',
+        $this->copyFile(
+            $sourceBase . '/.circleci/config.yml',
             $destBase . '/.circleci/config.yml'
         );
         
@@ -69,26 +58,28 @@ class Installer
         // File will be added in a future version if needed
         
         // Copy test files
-        self::copyFile(
-            $sourceBase . '/files/.ci/test/visual-regression/playwright.config.js',
+        $this->copyFile(
+            $sourceBase . '/.ci/test/visual-regression/playwright.config.js',
             $destBase . '/.ci/test/visual-regression/playwright.config.js'
         );
 
-        self::copyFile(
-            $sourceBase . '/files/.ci/test/visual-regression/playwright-tests.spec.js',
+        $this->copyFile(
+            $sourceBase . '/.ci/test/visual-regression/playwright-tests.spec.js',
             $destBase . '/.ci/test/visual-regression/playwright-tests.spec.js'
         );
 
-        self::copyFile(
-            $sourceBase . '/files/.ci/test/visual-regression/run-playwright',
+        $this->copyFile(
+            $sourceBase . '/.ci/test/visual-regression/run-playwright',
             $destBase . '/.ci/test/visual-regression/run-playwright'
         );
         
         // Copy script files
-        self::copyFile(
-            $sourceBase . '/files/.ci/test/visual-regression/package.json',
+        $this->copyFile(
+            $sourceBase . '/.ci/test/visual-regression/package.json',
             $destBase . '/.ci/test/visual-regression/package.json'
         );
+        
+        $this->io->write('  - All files have been copied successfully!');
         
         echo "Pantheon CI files installed to project root!\n";
     }
@@ -99,11 +90,13 @@ class Installer
      * @param string $dir Directory path
      * @return void
      */
-    protected static function ensureDirectoryExists($dir)
+    protected function ensureDirectoryExists($dir)
     {
         if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
-            echo "Created directory: {$dir}\n";
+            if (!@mkdir($dir, 0755, true) && !is_dir($dir)) {
+                throw new \RuntimeException(sprintf('Directory "%s" was not created', $dir));
+            }
+            $this->io->write(sprintf('  - Created directory: %s', $dir));
         }
     }
     
@@ -113,15 +106,29 @@ class Installer
      * @param string $source Source file path
      * @param string $dest Destination file path
      * @return void
+     * @throws \RuntimeException If source file doesn't exist or copy fails
      */
-    protected static function copyFile($source, $dest)
+    protected function copyFile($source, $dest)
     {
-        if (file_exists($source)) {
-            copy($source, $dest);
-            echo "Copied: {$source} → {$dest}\n";
-        } else {
-            echo "Warning: Source file not found: {$source}\n";
+        if (!file_exists($source)) {
+            throw new \RuntimeException(sprintf('Source file not found: %s', $source));
         }
+
+        $destDir = dirname($dest);
+        if (!is_dir($destDir)) {
+            $this->ensureDirectoryExists($destDir);
+        }
+
+        if (!copy($source, $dest)) {
+            throw new \RuntimeException(sprintf('Failed to copy %s to %s', $source, $dest));
+        }
+        
+        // Make scripts executable
+        if (strpos($dest, '.sh') !== false || strpos($dest, 'run-') === 0) {
+            chmod($dest, 0755);
+        }
+        
+        $this->io->write(sprintf('  - Copied: %s', str_replace(getcwd() . '/', '', $dest)));
     }
     
     /**
@@ -131,8 +138,9 @@ class Installer
      * a non-package composer.json (the root project)
      * 
      * @return string Project root path
+     * @throws \RuntimeException If project root cannot be determined
      */
-    protected static function findProjectRoot()
+    protected function findProjectRoot()
     {
         // Start with the current directory
         $dir = getcwd();
@@ -172,9 +180,9 @@ class Installer
             $dir = $parentDir;
         }
         
-        // If we couldn't find the project root, default to current directory
+        // If we couldn't find the project root, use the current working directory
         $fallbackDir = getcwd();
-        file_put_contents('php://stderr', "[PANTHEON-CI-DEBUG] Could not determine project root, using fallback: {$fallbackDir}\n");
+        $this->io->write(sprintf('  - Warning: Could not determine project root, using: %s', $fallbackDir));
         return $fallbackDir;
     }
 }
