@@ -1,8 +1,18 @@
-const { test, expect } = require('@playwright/test');
-const fs = require('fs');
-const path = require('path');
-const { PNG } = require('pngjs');
-const pixelmatch = require('pixelmatch');
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { test, expect } from '@playwright/test';
+import { chromium } from 'playwright';
+import pixelmatch from 'pixelmatch';
+import pngjs from 'pngjs';
+
+// Get the current file's directory in ES module
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Initialize PNG and pixelmatch
+const { PNG: PngClass } = pngjs;
+const pixelMatchFn = pixelmatch;
 
 /**
  * Visual Regression Testing with Playwright
@@ -79,19 +89,14 @@ function findTestRoutesFile(startDir, maxDepth = 4) {
   return null;
 }
 
-// Find test_routes.json in current directory or up to 4 levels up
-const testRoutesPath = findTestRoutesFile(__dirname, 4);
-
-if (!testRoutesPath) {
-  console.error("ERROR: test_routes.json not found in current directory or any parent directory (up to 4 levels)");
-  process.exit(1);
-}
-// Initialize paths array
+// Initialize test paths
 let paths = [];
 
-// Try to load routes from test_routes.json at project root
+// Try to find and load test routes
 try {
-  if (fs.existsSync(testRoutesPath)) {
+  const testRoutesPath = findTestRoutesFile(__dirname, 4);
+  
+  if (testRoutesPath) {
     console.log(`Found test_routes.json at: ${testRoutesPath}`);
     const routesData = JSON.parse(fs.readFileSync(testRoutesPath, 'utf8'));
     
@@ -105,17 +110,21 @@ try {
       };
     });
     
-    console.log('Using routes from test_routes.json:');
-    console.log(paths);
+    console.log(`✅ Loaded ${paths.length} test routes from ${testRoutesPath}`);
   } else {
-    console.error(`ERROR: test_routes.json not found at ${testRoutesPath}`);
-    console.error('Please create a test_routes.json file at the root of your project');
-    process.exit(1); // Exit with error code
+    console.warn('⚠️ No test_routes.json file found, using default test paths');
+    paths = [
+      { name: 'homepage', url: '/' },
+      { name: 'about', url: '/about' },
+      { name: 'contact', url: '/contact' }
+    ];
   }
 } catch (error) {
-  console.error(`ERROR reading test_routes.json: ${error.message}`);
-  process.exit(1); // Exit with error code
+  console.error(`❌ Error reading test_routes.json: ${error.message}`);
+  process.exit(1);
 }
+
+// Modules are already initialized at the top
 
 // Create directory structure if it doesn't exist
 function ensureDirectoryExists(dir) {
@@ -300,12 +309,12 @@ paths.forEach(({ name, url }) => {
           // Otherwise, compare with the reference image
           try {
             const referenceImage = fs.readFileSync(screenshotPath);
-            const img1 = PNG.sync.read(referenceImage);
-            const img2 = PNG.sync.read(screenshot);
+            const img1 = PngClass.sync.read(referenceImage);
+            const img2 = PngClass.sync.read(screenshot);
             
             // Compare images using pixelmatch
-            const diff = new PNG({ width: img1.width, height: img1.height });
-            const diffPixels = pixelmatch(
+            const diff = new PngClass({ width: img1.width, height: img1.height });
+            const diffPixels = pixelMatchFn(
               img1.data, 
               img2.data, 
               diff.data, 
@@ -313,6 +322,9 @@ paths.forEach(({ name, url }) => {
               img1.height, 
               { threshold: config.thresholds.pixelMatch }
             );
+            
+            // Save the diff image
+            fs.writeFileSync(diffPath, PngClass.sync.write(diff));
             
             // Calculate difference percentage
             const diffPercent = (diffPixels * 100) / (img1.width * img1.height);

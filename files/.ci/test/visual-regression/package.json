@@ -1,17 +1,22 @@
 {
   "name": "visual-regression",
   "version": "1.0.0",
-  "main": "npx playwright test",
+  "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "playwright test",
+    "test:update": "UPDATE_SNAPSHOTS=true playwright test",
+    "test:retry": "RETRY_WITH_HIGHER_THRESHOLD=true playwright test"
   },
-  "keywords": [],
+  "keywords": ["playwright", "visual-regression", "testing"],
   "author": "",
   "license": "ISC",
-  "description": "",
-  "devDependencies": {
+  "description": "Visual regression testing with Playwright",
+  "dependencies": {
     "@playwright/test": "^1.52.0",
     "pixelmatch": "^7.1.0",
     "pngjs": "^7.0.0"
+  },
+  "engines": {
+    "node": ">=14.0.0"
   }
 }
