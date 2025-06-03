@@ -5,14 +5,6 @@ set -e  # Exit on any error
 # This script runs visual regression tests using Playwright's built-in testing tools
 #
 
-# Source environment variables if they exist
-if [ -f "/tmp/workspace/env_vars.sh" ]; then
-    echo "Sourcing environment variables from /tmp/workspace/env_vars.sh"
-    source /tmp/workspace/env_vars.sh
-else
-    echo "Warning: /tmp/workspace/env_vars.sh not found"
-fi
-
 # Debug: Print environment variables
 echo "=== Environment Variables in Run Script ==="
 set | grep -E 'DEV_SITE_URL|MULTIDEV_SITE_URL|TERMINUS_'
@@ -39,8 +31,6 @@ echo -e "\nPinging environments to wake them up..."
 curl -I "$MULTIDEV_SITE_URL" > /dev/null || echo "Warning: Failed to ping $MULTIDEV_SITE_URL"
 curl -I "$DEV_SITE_URL" > /dev/null || echo "Warning: Failed to ping $DEV_SITE_URL"
 
-# Install required dependencies
-cd "$SCRIPT_DIR"
 
 # Run the tests
 echo -e "\nRunning visual regression tests with Playwright..."

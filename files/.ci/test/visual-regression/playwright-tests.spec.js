@@ -47,10 +47,38 @@ console.log(`CI Build: ${ENV.CI_BUILD_URL}`);
 console.log(`Visual regression testing enabled: ${ENV.VISUAL_REGRESSION_ENABLED}`);
 
 
-// Find project root (assuming this script is in .ci/test/visual-regression)
-const projectRoot = path.resolve(process.cwd(), '../../../../');
-const testRoutesPath = path.join(projectRoot, 'test_routes.json');
+function findTestRoutesFile(startDir, maxDepth = 4) {
+  let currentDir = startDir;
+  let depth = 0;
 
+  while (depth <= maxDepth) {
+    const testPath = path.join(currentDir, "test_routes.json");
+
+    if (fs.existsSync(testPath)) {
+      return testPath;
+    }
+
+    const parentDir = path.dirname(currentDir);
+
+    // Stop if we've reached the filesystem root
+    if (parentDir === currentDir) {
+      break;
+    }
+
+    currentDir = parentDir;
+    depth++;
+  }
+
+  return null;
+}
+
+// Find test_routes.json in current directory or up to 4 levels up
+const testRoutesPath = findTestRoutesFile(__dirname, 4);
+
+if (!testRoutesPath) {
+  console.error("ERROR: test_routes.json not found in current directory or any parent directory (up to 4 levels)");
+  process.exit(1);
+}
 // Initialize paths array
 let paths = [];
 
