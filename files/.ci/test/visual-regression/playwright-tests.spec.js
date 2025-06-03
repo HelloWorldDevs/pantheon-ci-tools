@@ -209,9 +209,6 @@ const config = {
 // Configure Playwright to ignore HTTPS errors for local domains
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
-// Set test timeout for all tests
-test.describe.configure({ timeout: config.testTimeout });
-
 // Helper function to create a new browser context with proper SSL settings
 async function createBrowserContext(browser, viewport) {
   return await browser.newContext({
@@ -236,7 +233,7 @@ async function createBrowserContext(browser, viewport) {
 
 // Define test for each path
 paths.forEach(({ name, url }) => {
-  test.describe(`Visual regression test for ${name}`, () => {
+  test.describe(`Visual regression test for ${name}`, { timeout: config.testTimeout }, () => {
     // Pre-warm caches before tests run
     test.beforeAll(async ({ browser }) => {
       const context = await createBrowserContext(browser, config.viewports.desktop);
