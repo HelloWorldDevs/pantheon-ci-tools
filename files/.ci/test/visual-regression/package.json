@@ -7,12 +7,16 @@
     "test:update": "UPDATE_SNAPSHOTS=true playwright test",
     "test:retry": "RETRY_WITH_HIGHER_THRESHOLD=true playwright test"
   },
-  "keywords": ["playwright", "visual-regression", "testing"],
+  "keywords": [
+    "playwright",
+    "visual-regression",
+    "testing"
+  ],
   "author": "",
   "license": "ISC",
   "description": "Visual regression testing with Playwright",
   "dependencies": {
-    "@playwright/test": "^1.52.0",
+    "@playwright/test": "^1.40.0",
     "pixelmatch": "^7.1.0",
     "pngjs": "^7.0.0"
   },
