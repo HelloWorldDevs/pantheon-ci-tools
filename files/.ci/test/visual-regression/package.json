@@ -1,7 +1,6 @@
 {
   "name": "visual-regression",
   "version": "1.0.0",
-  "type": "module",
   "main": "playwright.config.js",
   "scripts": {
     "test": "playwright test",
