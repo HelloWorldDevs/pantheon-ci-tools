@@ -62,6 +62,17 @@ class Installer
             $destBase . '/.github/workflows/delete-multidev-on-merge.yml'
         );
 
+        // Copy test_routes.json only if it doesn't already exist in the destination
+        $testRoutesDest = $destBase . '/test_routes.json';
+        if (!file_exists($testRoutesDest)) {
+            $this->copyFile(
+                $sourceBase . '/test_routes.json',
+                $testRoutesDest
+            );
+        } else {
+            $this->io->write(sprintf('  - Skipped copying test_routes.json, file already exists at: %s', str_replace(getcwd() . '/', '', $testRoutesDest)));
+        }
+
         $this->copyFile(
             $sourceBase . '/github/pr-comments-to-jira.yml',
             $destBase . '/.github/workflows/pr-comments-to-jira.yml'

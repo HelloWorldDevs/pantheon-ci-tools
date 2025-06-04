@@ -12,16 +12,16 @@ A Composer plugin that sets up CI/CD pipelines for Pantheon projects with Circle
 
 ## Installation
 
-1. Add the package to your project:
-
-```bash
-composer require --dev helloworlddevs/pantheon-ci-tools
-```
-
-2. Allow the plugin to run:
+1. Allow the plugin to run:
 
 ```bash
 composer config allow-plugins.helloworlddevs/pantheon-ci-tools true
+```
+
+2. Add the package to your project:
+
+```bash
+composer require --dev helloworlddevs/pantheon-ci-tools
 ```
 
 ## Visual Regression Testing
@@ -42,15 +42,9 @@ composer config allow-plugins.helloworlddevs/pantheon-ci-tools true
 
 ### Running Tests Locally
 
-1. Install dependencies:
+1. Run tests:
 ```bash
-cd .ci/test/visual-regression
-npm install
-```
-
-2. Run tests:
-```bash
-TESTING_URL=http://your-local-site npx playwright test
+./ci/test/visual-regression/run-playwright
 ```
 
 ### Configuration
@@ -78,10 +72,6 @@ Set these in your CI environment:
 PANTHEON_SITE=your-site-name
 TERMINUS_TOKEN=your-terminus-token
 GITHUB_TOKEN=your-github-token
-
-# Optional with defaults
-GITHUB_REPO=auto-detected
-PANTHEON_ENV=dev
 ```
 
 ## Troubleshooting
