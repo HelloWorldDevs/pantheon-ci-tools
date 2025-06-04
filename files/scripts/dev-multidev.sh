@@ -10,24 +10,20 @@ if [[ "$CI_BRANCH" == "$DEFAULT_BRANCH" ]]; then
   TERMINUS_ENV=dev
   echo "Deploying to Dev environment..."
 else
-  # Extract PR number from CIRCLE_PULL_REQUEST URL, fallback to "0" if not available
-  PR_NUMBER=$(echo "$CIRCLE_PULL_REQUEST" | grep -oE '[0-9]+$' || echo "0")
+  # PR_NUMBER and ISSUE_KEY are expected to be set by a previous step (e.g., setup_vars.sh)
 
-  # Extract Jira Ticket ID from Branch Name (e.g., feature/JIRA-123-description)
-  JIRA_TICKET_ID=$(echo "$CI_BRANCH" | grep -oE 'DLM-[0-9]+' || echo "")
-
-  # Determine environment name based on JIRA Ticket ID or PR Number
-  if [[ -n "$JIRA_TICKET_ID" ]]; then
-    # Sanitize JIRA Ticket ID to ensure it's lowercase and meets Pantheon's requirements
-    TERMINUS_ENV=$(echo "$JIRA_TICKET_ID" | tr '[:upper:]' '[:lower:]' | cut -c -11)
-    echo "Using Jira Ticket ID for Multidev Environment: $TERMINUS_ENV"
-  elif [[ "$PR_NUMBER" != "0" ]]; then
+  # Determine environment name based on ISSUE_KEY or PR_NUMBER
+  if [[ -n "${ISSUE_KEY:-}" ]]; then
+    # Sanitize ISSUE_KEY to ensure it's lowercase and meets Pantheon's requirements
+    TERMINUS_ENV=$(echo "$ISSUE_KEY" | tr '[:upper:]' '[:lower:]' | cut -c -11)
+    echo "Using Issue Key for Multidev Environment: $TERMINUS_ENV"
+  elif [[ -n "${PR_NUMBER:-}" && "$PR_NUMBER" != "0" ]]; then
     # Use PR number with prefix, ensuring it's lowercase and meets Pantheon's requirements
     TERMINUS_ENV="pr-${PR_NUMBER}"
     TERMINUS_ENV=$(echo "$TERMINUS_ENV" | tr '[:upper:]' '[:lower:]' | cut -c -11)
     echo "Using PR Number for Multidev Environment: $TERMINUS_ENV"
   else
-    echo "Neither Jira Ticket ID nor PR Number found. Cannot determine Multidev Environment name."
+    echo "Neither Issue Key nor valid PR Number found. Cannot determine Multidev Environment name."
     exit 1
   fi
 fi
