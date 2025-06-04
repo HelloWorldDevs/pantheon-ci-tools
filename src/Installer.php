@@ -105,11 +105,16 @@ class Installer
             $sourceBase . '/.ci/test/visual-regression/run-playwright',
             $destBase . '/.ci/test/visual-regression/run-playwright'
         );
-        
+
         // Copy script files
         $this->copyFile(
             $sourceBase . '/.ci/test/visual-regression/package.json',
             $destBase . '/.ci/test/visual-regression/package.json'
+        );
+        // Copy script files
+        $this->copyFile(
+            $sourceBase . '/.ci/test/visual-regression/package-lock.json',
+            $destBase . '/.ci/test/visual-regression/package-lock.json'
         );
         
         $this->io->write('  - All files have been copied successfully!');
