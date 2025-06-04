@@ -161,6 +161,7 @@ class Installer
         $filename = basename($dest);
         if (strpos($filename, '.sh') !== false || 
             strpos($filename, 'run-') === 0 || 
+            strpos($filename, 'dev-multidev') === 0 || 
             $filename === 'run-playwright') {
             chmod($dest, 0755);
             $this->io->write(sprintf('  - Made executable: %s', str_replace(getcwd() . '/', '', $dest)));
