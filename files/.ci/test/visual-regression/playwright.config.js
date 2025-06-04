@@ -1,10 +1,10 @@
 // @ts-check
-import { defineConfig } from "@playwright/test";
+const { defineConfig } = require("@playwright/test");
 
 /**
  * @see https://playwright.dev/docs/test-configuration
  */
-export default defineConfig({
+module.exports = defineConfig({
   testDir: "./",
   testMatch: "*tests.spec.js",
   /* Maximum time one test can run for */
