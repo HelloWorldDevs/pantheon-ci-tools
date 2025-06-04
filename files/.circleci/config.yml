@@ -188,7 +188,18 @@ jobs:
       - run:
           name: Run Playwright visual regression tests
           command: |
+            echo "Current directory: $(pwd)"
+            echo "Listing contents of /tmp/workspace/.ci/test/visual-regression:"
+            ls -la /tmp/workspace/.ci/test/visual-regression
             cd /tmp/workspace/.ci/test/visual-regression
+            echo "Installing npm dependencies..."
+            # Use npm ci for cleaner and faster installs in CI
+            npm ci
+            echo "Installing Playwright browsers..."
+            # The base image should have system dependencies, so playwright install should suffice
+            # If issues persist, can switch to 'npx playwright install --with-deps'
+            npx playwright install
+            echo "Running Playwright tests..."
             chmod +x ./run-playwright
             ./run-playwright
 

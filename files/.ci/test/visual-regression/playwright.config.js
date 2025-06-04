@@ -1,12 +1,12 @@
 // @ts-check
-import { defineConfig } from '@playwright/test';
+import { defineConfig } from "@playwright/test";
 
 /**
  * @see https://playwright.dev/docs/test-configuration
  */
 export default defineConfig({
-  testDir: './',
-  testMatch: '*tests.spec.js',
+  testDir: "./",
+  testMatch: "*tests.spec.js",
   /* Maximum time one test can run for */
   timeout: 60 * 1000,
   expect: {
@@ -33,22 +33,16 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   /* Reporter to use */
   reporter: [
-    ['html', { outputFolder: 'playwright-report' }],
-    ['junit', { outputFile: 'test-results/junit.xml' }]
+    ["html", { outputFolder: "playwright-report" }],
+    ["junit", { outputFile: "test-results/junit.xml" }],
   ],
   /* Configure projects for major browsers */
   projects: [
     {
-      name: 'chromium',
+      name: "chromium",
       use: {
         launchOptions: {
-          args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-font-subpixel-positioning',
-            '--disable-font-antialiasing',
-            '--disable-lcd-text'
-          ],
+          args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-font-subpixel-positioning", "--disable-font-antialiasing", "--disable-lcd-text"],
         },
       },
     },
