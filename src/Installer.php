@@ -79,11 +79,11 @@ class Installer
         );
         $this->copyFile(
             $sourceBase . '/scripts/post_multidev_url.sh',
-            $destBase . '/scripts/post_multidev_url.sh'
+            $destBase . '/.ci/scripts/post_multidev_url.sh'
         );
         $this->copyFile(
             $sourceBase . '/scripts/setup_vars.sh',
-            $destBase . '/scripts/setup_vars.sh'
+            $destBase . '/.ci/scripts/setup_vars.sh'
         );
 
         // Copy test files
