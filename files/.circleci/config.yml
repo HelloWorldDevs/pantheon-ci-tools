@@ -98,7 +98,7 @@ jobs:
             git commit -m "Preparing code for deployment" || true
       - run:
           name: Deploying to Pantheon
-          command: ./.ci/dev-multidev
+          command: ./.ci/scripts/dev-multidev.sh
           no_output_timeout: 40m
       - run:
           name: Post Multidev URL to GitHub PR

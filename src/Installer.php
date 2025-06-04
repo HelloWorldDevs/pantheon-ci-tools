@@ -47,7 +47,6 @@ class Installer
         $this->ensureDirectoryExists($destBase . '/.circleci');
         $this->ensureDirectoryExists($destBase . '/.ci/test/visual-regression');
         $this->ensureDirectoryExists($destBase . '/.ci/scripts');
-        $this->ensureDirectoryExists($destBase . '/.ci/deploy/pantheon');
         
         // Copy CircleCI config
         $this->copyFile(
@@ -79,8 +78,8 @@ class Installer
             $destBase . '/.github/workflows/pr-comments-to-jira.yml'
         );
         $this->copyFile(
-            $sourceBase . '/deploy/pantheon/dev-multidev',
-            $destBase . '/.ci/deploy/pantheon/dev-multidev'
+            $sourceBase . '/scripts/dev-multidev.sh',
+            $destBase . '/.ci/scripts/dev-multidev.sh'
         );
         $this->copyFile(
             $sourceBase . '/scripts/post_multidev_url.sh',
