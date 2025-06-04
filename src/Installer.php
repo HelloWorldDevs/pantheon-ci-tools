@@ -77,6 +77,14 @@ class Installer
             $sourceBase . '/github/pr-comments-to-jira.yml',
             $destBase . '/.github/workflows/pr-comments-to-jira.yml'
         );
+        $this->copyFile(
+            $sourceBase . '/scripts/post_multidev_url.sh',
+            $destBase . '/scripts/post_multidev_url.sh'
+        );
+        $this->copyFile(
+            $sourceBase . '/scripts/setup_vars.sh',
+            $destBase . '/scripts/setup_vars.sh'
+        );
 
         // Copy test files
         $this->copyFile(
