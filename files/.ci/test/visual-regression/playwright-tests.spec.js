@@ -156,7 +156,7 @@ paths.forEach(({ name, url }) => {
     // Pre-warm caches before tests run
     test.beforeAll(async () => {
       // Pre-warm both reference and test URLs
-      await preWarmCache(`${testUrl}${url}`);
+      await preWarmCache(`${ENV.TESTING_URL}${url}`);
       // Add a delay to ensure caches are fully built
       await new Promise((resolve) => setTimeout(resolve, 2000));
     });
@@ -184,7 +184,7 @@ paths.forEach(({ name, url }) => {
         // The URL to test varies based on the execution context
         // First run with --update-snapshots will use DEV_SITE_URL (reference)
         // Second run without the flag will use MULTIDEV_SITE_URL (test)
-        const urlToTest = testUrl;
+        const urlToTest = ENV.TESTING_URL;
 
         console.log(`Navigating to: ${urlToTest}${url}`);
         await testPage.goto(`${urlToTest}${url}`, {
