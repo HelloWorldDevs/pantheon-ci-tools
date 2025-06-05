@@ -79,8 +79,9 @@ function findTestRoutesFile(startDir, maxDepth = 4) {
   return null;
 }
 
-// Initialize test paths
+// Initialize test paths and hideSelectors array
 let paths = [];
+let hideSelectors = [];
 
 // Try to find and load test routes
 try {
@@ -91,7 +92,8 @@ try {
     const routesData = JSON.parse(fs.readFileSync(testRoutesPath, "utf8"));
 
     // Handle the new JSON structure with routes and hideSelectors
-    let hideSelectors = [];
+    // Using the global hideSelectors array - no let declaration here
+    hideSelectors = [];
     
     if (routesData.routes && typeof routesData.routes === 'object') {
       // Use the routes object for test paths
