@@ -226,6 +226,10 @@ paths.forEach(({ name, url }) => {
           }
         `,
         });
+        
+        // Add a delay to ensure all content is loaded before taking the screenshot
+        await testPage.waitForTimeout(3000); // 3 second delay
+        
         await expect(testPage).toHaveScreenshot(`${name.replace(/ /g, "-")}-${viewport}.png`, {
           maxDiffPixelRatio: isRetry ? retryMaxDiffPixelRatio : defaultMaxDiffPixelRatio,
           threshold: 0.2, // Consistent color sensitivity, aligns with Playwright default
