@@ -90,15 +90,38 @@ try {
     console.log(`Found test_routes.json at: ${testRoutesPath}`);
     const routesData = JSON.parse(fs.readFileSync(testRoutesPath, "utf8"));
 
-    // Convert the JSON data to the expected format
-    paths = Object.entries(routesData).map(([name, url]) => {
-      // Remove domain part if present, we only need the path
-      const parsedUrl = new URL(url.startsWith("http") ? url : `http://example.com${url}`);
-      return {
-        name,
-        url: parsedUrl.pathname + parsedUrl.search,
-      };
-    });
+    // Handle the new JSON structure with routes and hideSelectors
+    let hideSelectors = [];
+    
+    if (routesData.routes && typeof routesData.routes === 'object') {
+      // Use the routes object for test paths
+      paths = Object.entries(routesData.routes).map(([name, url]) => {
+        // Remove domain part if present, we only need the path
+        const parsedUrl = new URL(url.startsWith("http") ? url : `http://example.com${url}`);
+        return {
+          name,
+          url: parsedUrl.pathname + parsedUrl.search,
+        };
+      });
+      console.log(`✅ Loaded ${paths.length} test routes from routes object`);
+    } else {
+      // Legacy format - directly use the JSON object as routes
+      paths = Object.entries(routesData).map(([name, url]) => {
+        // Remove domain part if present, we only need the path
+        const parsedUrl = new URL(url.startsWith("http") ? url : `http://example.com${url}`);
+        return {
+          name,
+          url: parsedUrl.pathname + parsedUrl.search,
+        };
+      });
+      console.log(`✅ Loaded ${paths.length} test routes from legacy format`);
+    }
+    
+    // Get hide selectors if available
+    if (routesData.hideSelectors && Array.isArray(routesData.hideSelectors)) {
+      hideSelectors = routesData.hideSelectors;
+      console.log(`✅ Loaded ${hideSelectors.length} selectors to hide during testing`);
+    }
 
     console.log(`✅ Loaded ${paths.length} test routes from ${testRoutesPath}`);
   } else {
@@ -217,15 +240,75 @@ paths.forEach(({ name, url }) => {
 
         // Log whether we're doing a regular test or a retry with higher thresholds
         console.log(`${isRetry ? "RETRY with higher thresholds" : "Regular test"} for ${name} on ${viewport}`);
-        // Add this before taking the screenshot
-        await testPage.addStyleTag({
-          content: `
-          .captcha-type-challenge--recaptcha {
-            visibility: hidden !important;
-            display: none !important;
-          }
-        `,
+        
+        // Hide elements based on the selectors defined in test_routes.json
+        if (hideSelectors && hideSelectors.length > 0) {
+          console.log(`Hiding ${hideSelectors.length} elements for visual testing`);
+          
+          // Create CSS to hide all specified selectors
+          const hideSelectorsCSS = hideSelectors
+            .map(selector => `${selector} { visibility: hidden !important; display: none !important; }`)
+            .join('\n');
+          
+          // Apply the hiding CSS
+          await testPage.addStyleTag({
+            content: hideSelectorsCSS
+          });
+        } else {
+          // Fallback to just hiding the recaptcha if no hideSelectors are defined
+          await testPage.addStyleTag({
+            content: `
+            .captcha-type-challenge--recaptcha {
+              visibility: hidden !important;
+              display: none !important;
+            }
+          `,
+          });
+        }
+        
+        // Scroll the page up and down to trigger any scroll-based JavaScript events
+        console.log(`Scrolling through page for ${name} on ${viewport} to trigger scroll events`);
+        await testPage.evaluate(() => {
+          return new Promise((resolve) => {
+            // Get the full page height
+            const pageHeight = document.body.scrollHeight;
+            // Start at the top
+            window.scrollTo(0, 0);
+            
+            // Scroll down slowly in increments
+            let currentPosition = 0;
+            const scrollStep = Math.min(500, pageHeight / 5); // Either 500px or 1/5 of page height
+            
+            function scrollDown() {
+              if (currentPosition < pageHeight) {
+                currentPosition += scrollStep;
+                window.scrollTo(0, currentPosition);
+                setTimeout(scrollDown, 100);
+              } else {
+                // Once at the bottom, scroll back up
+                scrollUp();
+              }
+            }
+            
+            function scrollUp() {
+              if (currentPosition > 0) {
+                currentPosition -= scrollStep;
+                window.scrollTo(0, currentPosition);
+                setTimeout(scrollUp, 100);
+              } else {
+                // Finally scroll back to top and resolve
+                window.scrollTo(0, 0);
+                setTimeout(resolve, 300); // Short delay after finishing scroll
+              }
+            }
+            
+            // Start the scroll sequence
+            setTimeout(scrollDown, 100);
+          });
         });
+        
+        // Reset to top of page
+        await testPage.evaluate(() => window.scrollTo(0, 0));
         
         // Add a delay to ensure all content is loaded before taking the screenshot
         await testPage.waitForTimeout(3000); // 3 second delay

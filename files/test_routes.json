@@ -1,4 +1,15 @@
 {
-  "UserLogin": "/user/login",
-  "HomePage": "/"
+  "routes": {
+    "HomePage": "/",
+    "UserLogin": "/user/login"
+  },
+  "hideSelectors": [
+    ".captcha-type-challenge--recaptcha",
+    ".cookie-notice",
+    ".animated-banner",
+    ".chat-widget",
+    ".user-notification",
+    "#gdpr-banner",
+    ".timestamp-container"
+  ]
 }
