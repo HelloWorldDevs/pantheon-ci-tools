@@ -15,12 +15,11 @@ module.exports = defineConfig({
      */
     timeout: 10000,
     toHaveScreenshot: {
-      maxDiffPixelRatio: 0.1, // 10% threshold for differences
-      threshold: 0.2,
+      maxDiffPixelRatio: 0.02, // 2% threshold for differences
+      // For SSIM comparison, 'threshold' (0-1, lower is stricter) can be set per assertion if needed
     },
     toMatchSnapshot: {
-      maxDiffPixelRatio: 0.1, // 10% threshold for differences
-      threshold: 0.2,
+      maxDiffPixelRatio: 0.02, // 2% threshold for differences
       // Allow for small dimension differences that don't affect functionality
       maxDiffPixels: 100,
     },

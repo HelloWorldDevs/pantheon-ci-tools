@@ -35,6 +35,9 @@ const ENV = {
   NAVIGATION_TIMEOUT: parseInt(process.env.NAVIGATION_TIMEOUT) || 30000,
 };
 
+const defaultMaxDiffPixelRatio = process.env.MAX_DIFF_PIXEL_RATIO ? parseFloat(process.env.MAX_DIFF_PIXEL_RATIO) : 0.02; // Default to 2% if not set
+const retryMaxDiffPixelRatio = process.env.RETRY_MAX_DIFF_PIXEL_RATIO ? parseFloat(process.env.RETRY_MAX_DIFF_PIXEL_RATIO) : 0.04; // Default to 4% for retry if not set
+
 // Configure Playwright to ignore HTTPS errors for local domains
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 

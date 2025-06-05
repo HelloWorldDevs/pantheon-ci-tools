@@ -14,33 +14,42 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Terminus
-        uses: pantheon-systems/terminus-installer@v1
+      - name: Set up PHP and Terminus
+        uses: shivammathur/setup-php@v2
         with:
-          version: 3.1.6
-          install-dir: /tmp/terminus
+          php-version: '8.1' # You can adjust the PHP version if needed
+          tools: terminus
+          extensions: mbstring, dom, filter, gd, iconv, json, Phar, session, simplexml, tokenizer, xml, zip # Common extensions for PHP tools
 
-      - name: Configure Terminus
+      - name: Authenticate Terminus and Install Secrets Plugin
+        env:
+          TERMINUS_TOKEN: ${{ secrets.TERMINUS_TOKEN }}
         run: |
-          mkdir -p ~/.terminus/plugins
-          composer -d=/tmp/terminus require --dev pantheon-systems/terminus-secrets-plugin:^2
-          echo "${TERMINUS_TOKEN}" > ~/.terminus/cache/token
+          terminus --version # Output Terminus version for debugging
+          terminus auth:login --machine-token="$TERMINUS_TOKEN"
+          terminus self:plugin:install pantheon-systems/terminus-secrets-plugin --yes
 
       - name: Delete Multidev Environment
         env:
-          TERMINUS_TOKEN: ${{ secrets.TERMINUS_TOKEN }}
-          PANTHEON_SITE: ${{ vars.PANTHEON_SITE || 'your-site-name' }}
-          BRANCH: ${{ github.head_ref || github.ref_name }}
+          # TERMINUS_TOKEN is used in the auth step above
+          # IMPORTANT: Ensure PANTHEON_SITE is set in GitHub repo variables
+          PANTHEON_SITE: "${{ vars.PANTHEON_SITE || 'your-site-name' }}"
+          # Get branch name from PR event
+          BRANCH: "${{ github.event.pull_request.head.ref || github.head_ref || github.ref_name }}"
         run: |
-          # Clean up branch name to be a valid multidev name
-          CLEAN_BRANCH=$(echo "$BRANCH" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | cut -c 1-11 | sed 's/-$//')
-          
+          echo "Original branch name: $BRANCH"
+          # Clean up branch name to be a valid multidev name (lowercase, alphanumeric, hyphens, max 11 chars, no leading/trailing hyphens)
+          CLEAN_BRANCH=$(echo "$BRANCH" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/^-*//;s/-*$//' | cut -c 1-11)
+          echo "Cleaned branch name for multidev: ${CLEAN_BRANCH}"
+          echo "Target Pantheon site: ${PANTHEON_SITE}"
+
           # Check if the multidev environment exists
-          if /tmp/terminus/bin/terminus env:info ${PANTHEON_SITE}.dev 2>&1 | grep -q "${CLEAN_BRANCH}"; then
-            echo "Deleting multidev environment: ${CLEAN_BRANCH}"
-            /tmp/terminus/bin/terminus multidev:delete ${PANTHEON_SITE}.${CLEAN_BRANCH} --delete-branch --yes
+          if terminus env:list "${PANTHEON_SITE}" --field=id | grep -qw "${CLEAN_BRANCH}"; then
+            echo "Multidev environment '${CLEAN_BRANCH}' found for site '${PANTHEON_SITE}'. Deleting..."
+            terminus env:delete "${PANTHEON_SITE}.${CLEAN_BRANCH}" --delete-branch --yes --force
+            echo "Deletion command executed for multidev '${CLEAN_BRANCH}'."
           else
-            echo "No multidev environment found for branch: ${CLEAN_BRANCH}"
+            echo "No multidev environment named '${CLEAN_BRANCH}' found for site '${PANTHEON_SITE}'. Nothing to delete."
           fi
 
       - name: Post cleanup comment
