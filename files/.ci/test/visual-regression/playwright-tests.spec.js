@@ -227,9 +227,9 @@ paths.forEach(({ name, url }) => {
         `,
         });
         await expect(testPage).toHaveScreenshot(`${name.replace(/ /g, "-")}-${viewport}.png`, {
-          maxDiffPixelRatio: isRetry ? 0.2 : 0.1, // Double the allowed diff ratio on retry
-          threshold: isRetry ? 0.3 : 0.2, // Higher color difference threshold on retry
-          maxDiffPixels: isRetry ? 500 : 100, // Allow more different pixels on retry
+          maxDiffPixelRatio: isRetry ? retryMaxDiffPixelRatio : defaultMaxDiffPixelRatio,
+          threshold: 0.2, // Consistent color sensitivity, aligns with Playwright default
+          fullPage: true // Capture the full page, not just the viewport
         });
 
         // Close the test page
