@@ -108,9 +108,9 @@ jobs:
               exit 1
             fi
             
-            if [ -z "${THEME_COMMAND}" ]; then
-              echo "ERROR: THEME_COMMAND environment variable is not set!"
-              echo "Please set THEME_COMMAND in the CircleCI project settings or in .circleci/env_vars.sh"
+            if [ -z "${THEME_BUILD}" ]; then
+              echo "ERROR: THEME_BUILD environment variable is not set!"
+              echo "Please set THEME_BUILD in the CircleCI project settings or in .circleci/env_vars.sh"
               exit 1
             fi
             
@@ -264,6 +264,7 @@ jobs:
       - jira/notify:
           environment: testing
           job_type: deployment
+          debug: true
           pipeline_id: << pipeline.id >>
           pipeline_number: << pipeline.number >>
 # [workflow] Main build, test, and notification workflow
