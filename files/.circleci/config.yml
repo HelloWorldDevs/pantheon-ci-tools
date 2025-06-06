@@ -87,7 +87,50 @@ jobs:
           key: composer-cache-v1-{{ checksum "composer.lock" }}
           paths:
             - $HOME/.composer/cache
-      # [setup][deploy] SSH setup for deployment
+
+      # Load environment variables from external file
+      - run:
+          name: Load environment variables
+          command: |
+            # Make the env vars script executable
+            chmod +x ./.circleci/env_vars.sh
+            # Source it into BASH_ENV for all steps
+            echo 'source ./.circleci/env_vars.sh' >> $BASH_ENV
+            source $BASH_ENV
+            
+      # Verify required environment variables are set
+      - run:
+          name: Verify required theme variables are set
+          command: |
+            if [ -z "${THEME_PATH}" ]; then
+              echo "ERROR: THEME_PATH environment variable is not set!"
+              echo "Please set THEME_PATH in the CircleCI project settings or in .circleci/env_vars.sh"
+              exit 1
+            fi
+            
+            if [ -z "${THEME_COMMAND}" ]; then
+              echo "ERROR: THEME_COMMAND environment variable is not set!"
+              echo "Please set THEME_COMMAND in the CircleCI project settings or in .circleci/env_vars.sh"
+              exit 1
+            fi
+            
+            echo "Required theme variables verified: THEME_PATH=${THEME_PATH}, THEME_COMMAND=${THEME_COMMAND}"
+            
+      # Use npm ci instead of npm install if you want to install dependencies
+      # according to the exact versions in package-lock.json
+      - run:
+          name: Installing NPM dependencies in theme
+          command: cd ${THEME_PATH} && ${THEME_INSTALL}
+
+      # Your existing steps for building assets
+      - run:
+          name: Compiling SCSS to CSS, minifying JS
+          command: cd ${THEME_PATH} && ${THEME_BUILD}
+
+      - persist_to_workspace:
+          root: .
+          paths:
+            - web/themes/
       - run:
           name: Preparing code for Pantheon
           command: |
