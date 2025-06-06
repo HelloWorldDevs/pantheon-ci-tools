@@ -217,11 +217,11 @@ paths.forEach(({ name, url }) => {
           timeout: 30000, // Increase timeout for page load
         });
         await testPage.waitForSelector("body", { timeout: 15000 });
-        await testPage.waitForTimeout(2000); // Initial stability delay
+        await testPage.waitForTimeout(500); // Initial stability delay
 
         // Ensure content is loaded and visible by scrolling
         await testPage.locator("body").scrollIntoViewIfNeeded();
-        await testPage.waitForTimeout(2000); // Wait for scrolling to complete
+        await testPage.waitForTimeout(500); // Wait for scrolling to complete
 
         // Resize window slightly to trigger any responsive layout changes
         const originalViewport = viewportSizes[viewport];
@@ -233,7 +233,7 @@ paths.forEach(({ name, url }) => {
 
         // Restore original viewport size
         await testPage.setViewportSize(originalViewport);
-        await testPage.waitForTimeout(1000); // Final stabilization wait
+        await testPage.waitForTimeout(500); // Final stabilization wait
 
         // When run with --update-snapshots, it creates reference images
         // Otherwise it compares against existing references
