@@ -14,23 +14,21 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up PHP and Terminus
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.1' # You can adjust the PHP version if needed
-          tools: terminus
-          extensions: mbstring, dom, filter, gd, iconv, json, Phar, session, simplexml, tokenizer, xml, zip # Common extensions for PHP tools
-
-      - name: Authenticate Terminus and Install Secrets Plugin
+      - name: Setup Terminus
+        uses: pantheon-systems/terminus-github-actions@v1
         env:
-          TERMINUS_TOKEN: ${{ secrets.TERMINUS_TOKEN }}
-        run: |
-          terminus --version # Output Terminus version for debugging
-          terminus auth:login --machine-token="$TERMINUS_TOKEN"
-          terminus self:plugin:install pantheon-systems/terminus-secrets-plugin --yes
+          TERMINUS_ALLOW_UNSUPPORTED_NEWER_PHP: 1
+        with:
+          terminus-version: '3.2.0'
+          pantheon-machine-token: ${{ secrets.TERMINUS_TOKEN }}
+      - name: Install Terminus Secrets Plugin
+        env:
+          TERMINUS_ALLOW_UNSUPPORTED_NEWER_PHP: 1
+        run: terminus self:plugin:install pantheon-systems/terminus-secrets-plugin --yes
 
       - name: Delete Multidev Environment
         env:
+          TERMINUS_ALLOW_UNSUPPORTED_NEWER_PHP: 1
           # TERMINUS_TOKEN is used in the auth step above
           # IMPORTANT: Ensure PANTHEON_SITE is set in GitHub repo variables
           PANTHEON_SITE: "${{ vars.PANTHEON_SITE || 'your-site-name' }}"
