@@ -72,6 +72,16 @@ class Installer
         } else {
             $this->io->write(sprintf('  - Skipped copying test_routes.json, file already exists at: %s', str_replace(getcwd() . '/', '', $testRoutesDest)));
         }
+        // Copy env_vars.sh only if it doesn't already exist in the destination
+        $envVarsDest = $destBase . '/.circleci/env_vars.sh';
+        if (!file_exists($envVarsDest)) {
+            $this->copyFile(
+                $sourceBase . '/.circleci/env_vars.sh',
+                $envVarsDest
+            );
+        } else {
+            $this->io->write(sprintf('  - Skipped copying env_vars.sh, file already exists at: %s', str_replace(getcwd() . '/', '', $envVarsDest)));
+        }
 
         $this->copyFile(
             $sourceBase . '/github/pr-comments-to-jira.yml',
