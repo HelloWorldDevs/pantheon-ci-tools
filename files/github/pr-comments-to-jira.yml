@@ -68,7 +68,7 @@ jobs:
           PR_TITLE: ${{ steps.pr_details.outputs.pr_title }}
           PR_URL: ${{ steps.pr_details.outputs.pr_url }}
           COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
-          COMMENT_BODY: ${{ github.event.comment.body }}
+          COMMENT_BODY: ${{ steps.vars.outputs.BODY }}
         with:
           script: |
             const { JIRA_BASE_URL, JIRA_USER, JIRA_TOKEN, ISSUE_KEY, PR_TITLE, PR_URL, COMMENT_AUTHOR, COMMENT_BODY } = process.env;
