@@ -3,12 +3,15 @@ name: PR Comments to Jira
 on:
   issue_comment:
     types: [created]
+  # 2️⃣  “Approve / Request changes / Comment” reviews
+  pull_request_review:
+    types: [submitted]
 
 jobs:
   process_pr_to_jira:
     runs-on: ubuntu-latest
     # Only run if the comment is on a PR and not a regular issue
-    if: github.event.issue.pull_request
+    if: ${{ github.event.issue.pull_request || github.event.pull_request }}
     steps:
       - name: Get PR details
         id: pr_details
