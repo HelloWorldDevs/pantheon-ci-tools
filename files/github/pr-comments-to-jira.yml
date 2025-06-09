@@ -2,7 +2,7 @@ name: PR Comments to Jira
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, edited]
+    types: [synchronize, reopened, edited]
 
 jobs:
   process_pr_to_jira:
