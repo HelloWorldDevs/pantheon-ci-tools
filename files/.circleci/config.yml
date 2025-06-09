@@ -188,7 +188,10 @@ jobs:
       - persist_to_workspace:
           root: /tmp/workspace
           paths:
-            - .  # This includes all files, including .git
+            - env_vars.sh
+            - .ci/
+            - .circleci/
+            - .git/
 
   # Playwright visual regression testing job
   playwright_visual_tests:
