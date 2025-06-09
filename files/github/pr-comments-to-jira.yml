@@ -40,7 +40,7 @@ jobs:
         if: steps.extract_issue_key.outputs.ISSUE_KEY != ''
         env:
           JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
-          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_USER: ${{ secrets.JIRA_USER }}
           JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
         run: |
           # Verify Jira credentials are available (without exposing them)
@@ -49,8 +49,8 @@ jobs:
             exit 1
           fi
 
-          if [ -z "$JIRA_USER_EMAIL" ]; then
-            echo "Error: JIRA_USER_EMAIL is not set in GitHub secrets"
+          if [ -z "$JIRA_USER" ]; then
+            echo "Error: JIRA_USER is not set in GitHub secrets"
             exit 1
           fi
 
@@ -116,7 +116,7 @@ jobs:
 
           # First verify the issue exists
           HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: Basic $(echo -n $JIRA_USER_EMAIL:$JIRA_API_TOKEN | base64)" \
+            -H "Authorization: Basic $(echo -n $JIRA_USER:$JIRA_API_TOKEN | base64)" \
             "$JIRA_BASE_URL/rest/api/3/issue/$ISSUE_KEY")
 
           if [ "$HTTP_STATUS" != "200" ]; then
@@ -126,7 +126,7 @@ jobs:
 
           # Post comment to Jira with detailed output
           RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" \
-            -H "Authorization: Basic $(echo -n $JIRA_USER_EMAIL:$JIRA_API_TOKEN | base64)" \
+            -H "Authorization: Basic $(echo -n $JIRA_USER:$JIRA_API_TOKEN | base64)" \
             -H "Content-Type: application/json" \
             -d "$PAYLOAD" \
             "$JIRA_BASE_URL/rest/api/3/issue/$ISSUE_KEY/comment")
