@@ -1,12 +1,14 @@
 name: PR Comments to Jira
 
 on:
-  pull_request:
-    types: [synchronize, reopened, edited]
+  issue_comment:
+    types: [created]
 
 jobs:
   process_pr_to_jira:
     runs-on: ubuntu-latest
+    # Only run if the comment is on a PR and not a regular issue
+    if: github.event.issue.pull_request
     steps:
       - name: Get PR details
         id: pr_details
@@ -68,7 +70,7 @@ jobs:
           PR_TITLE: ${{ steps.pr_details.outputs.pr_title }}
           PR_URL: ${{ steps.pr_details.outputs.pr_url }}
           COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
-          COMMENT_BODY: ${{ steps.vars.outputs.BODY }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
         with:
           script: |
             const { JIRA_BASE_URL, JIRA_USER, JIRA_TOKEN, ISSUE_KEY, PR_TITLE, PR_URL, COMMENT_AUTHOR, COMMENT_BODY } = process.env;
