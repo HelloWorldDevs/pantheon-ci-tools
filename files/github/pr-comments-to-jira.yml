@@ -3,33 +3,80 @@ name: PR Comments to Jira
 on:
   issue_comment:
     types: [created]
-  # 2️⃣  “Approve / Request changes / Comment” reviews
-  pull_request_review:
-    types: [submitted]
+  pull_request_review_comment:
+    types: [created]
 
 jobs:
   process_pr_to_jira:
     runs-on: ubuntu-latest
-    # Only run if the comment is on a PR and not a regular issue
-    if: ${{ github.event.issue.pull_request || github.event.pull_request }}
+    # Only run if this is a PR comment (not an issue comment)
+    if: |
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request) || 
+      github.event_name == 'pull_request_review_comment'
     steps:
-      - name: Get PR details
+      - name: Debug event info
+        run: |
+          echo "Event name: ${{ github.event_name }}"
+          echo "Event action: ${{ github.event.action }}"
+
+      - name: Get PR and comment details
         id: pr_details
         uses: actions/github-script@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           script: |
-            // Get PR details including title and branch name
-            const { owner, repo, number } = context.issue;
-            const pr = await github.rest.pulls.get({
-              owner,
-              repo,
-              pull_number: number
-            });
+            const eventName = process.env.GITHUB_EVENT_NAME;
+            console.log(`Processing ${eventName} event`);
+            
+            let prUrl, commentBody, commentAuthor;
+            let pullRequest = null;
+            
+            // Extract info based on event type
+            if (eventName === 'issue_comment') {
+              // Regular PR comment
+              console.log('Handling issue_comment event');
+              prUrl = context.payload.issue.pull_request.url;
+              commentBody = context.payload.comment.body;
+              commentAuthor = context.payload.comment.user.login;
+              
+              // Fetch the PR details
+              const prResponse = await fetch(prUrl, {
+                headers: { Authorization: `token ${process.env.GITHUB_TOKEN}` }
+              });
+              pullRequest = await prResponse.json();
+              
+            } else if (eventName === 'pull_request_review_comment') {
+              // Review comment
+              console.log('Handling pull_request_review_comment event');
+              const { owner, repo } = context.repo;
+              const pullNumber = context.payload.pull_request.number;
+              commentBody = context.payload.comment.body;
+              commentAuthor = context.payload.comment.user.login;
+              
+              // Get PR details
+              pullRequest = await github.rest.pulls.get({
+                owner,
+                repo,
+                pull_number: pullNumber
+              }).then(response => response.data);
+            }
+            
+            if (!pullRequest) {
+              console.log('Failed to get PR details');
+              return;
+            }
             
             // Extract potential Jira key sources
-            const title = pr.data.title;
-            const body = pr.data.body || "";
-            const branch = pr.data.head.ref;
+            const title = pullRequest.title;
+            const body = pullRequest.body || "";
+            const branch = pullRequest.head.ref;
+            const prHtmlUrl = pullRequest.html_url;
+            
+            console.log(`PR Title: ${title}`);
+            console.log(`PR Branch: ${branch}`);
+            console.log(`Comment by: ${commentAuthor}`);
+            console.log(`Comment body: ${commentBody}`);
             
             // Try to find Jira issue key from PR title, body, or branch
             let issueKey = null;
@@ -57,10 +104,22 @@ jobs:
               }
             }
             
+            // Look in comment itself as last resort
+            if (!issueKey && commentBody) {
+              const commentMatch = commentBody.match(jiraKeyRegex);
+              if (commentMatch) {
+                issueKey = commentMatch[0];
+              }
+            }
+            
+            console.log(`Extracted Jira issue key: ${issueKey || 'None found'}`);
+            
             // Output PR and comment details
             core.setOutput('issue_key', issueKey || '');
             core.setOutput('pr_title', title);
-            core.setOutput('pr_url', pr.data.html_url);
+            core.setOutput('pr_url', prHtmlUrl);
+            core.setOutput('comment_body', commentBody || '');
+            core.setOutput('comment_author', commentAuthor || '');
       
       - name: Post comment to Jira
         if: steps.pr_details.outputs.issue_key != ''
@@ -72,8 +131,8 @@ jobs:
           ISSUE_KEY: ${{ steps.pr_details.outputs.issue_key }}
           PR_TITLE: ${{ steps.pr_details.outputs.pr_title }}
           PR_URL: ${{ steps.pr_details.outputs.pr_url }}
-          COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
-          COMMENT_BODY: ${{ github.event.comment.body }}
+          COMMENT_AUTHOR: ${{ steps.pr_details.outputs.comment_author }}
+          COMMENT_BODY: ${{ steps.pr_details.outputs.comment_body }}
         with:
           script: |
             const { JIRA_BASE_URL, JIRA_USER, JIRA_TOKEN, ISSUE_KEY, PR_TITLE, PR_URL, COMMENT_AUTHOR, COMMENT_BODY } = process.env;
