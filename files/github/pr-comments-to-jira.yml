@@ -77,6 +77,9 @@ jobs:
             
             console.log(`Posting comment to Jira issue ${ISSUE_KEY}`);
             
+            // Debug the exact payload we're sending
+            console.log('Message payload:', JSON.stringify(commentPayload, null, 2));
+            
             try {
               const response = await fetch(url, {
                 method: 'POST',
@@ -202,7 +205,10 @@ jobs:
               }
             };
             
-            console.log(`Posting comment by ${COMMENT_AUTHOR} to Jira issue ${ISSUE_KEY}`);
+            console.log(`Posting comment by ${COMMENT_AUTHOR} to Jira issue ${ISSUE_KEY}`); 
+            
+            // Debug the exact payload we're sending
+            console.log('Message payload:', JSON.stringify(commentPayload, null, 2));
             
             try {
               const response = await fetch(url, {
