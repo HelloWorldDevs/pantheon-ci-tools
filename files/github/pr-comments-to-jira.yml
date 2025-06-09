@@ -3,14 +3,10 @@ name: PR Comments to Jira
 on:
   pull_request:
     types: [opened, synchronize, reopened, edited]
-  issue_comment:
-    types: [created]
 
 jobs:
-  # Process comments added to PR
-  process_pr_comments_to_jira:
+  process_pr_to_jira:
     runs-on: ubuntu-latest
-    if: github.event_name == 'issue_comment' && github.event.issue.pull_request
     steps:
       - name: Get PR details
         id: pr_details
