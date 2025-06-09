@@ -47,7 +47,28 @@ jobs:
             }
             
             const auth = Buffer.from(`${JIRA_USER}:${JIRA_TOKEN}`).toString('base64');
-            const comment = `PR: "${PR_TITLE}" - ${PR_URL}`;
+            // Create proper Atlassian Document Format (ADF) payload
+            const commentPayload = {
+              body: {
+                type: "doc",
+                version: 1,
+                content: [
+                  {
+                    type: "paragraph",
+                    content: [
+                      { type: "text", text: "PR: " },
+                      { type: "text", text: PR_TITLE, marks: [{ type: "strong" }] },
+                      { type: "text", text: " - " },
+                      { 
+                        type: "text", 
+                        text: "View on GitHub", 
+                        marks: [{ type: "link", attrs: { href: PR_URL } }] 
+                      }
+                    ]
+                  }
+                ]
+              }
+            };
             const url = `${JIRA_BASE_URL}/rest/api/3/issue/${ISSUE_KEY}/comment`;
             
             console.log(`Posting comment to Jira issue ${ISSUE_KEY}`);
@@ -59,7 +80,7 @@ jobs:
                   'Authorization': `Basic ${auth}`,
                   'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ body: comment })
+                body: JSON.stringify(commentPayload)
               });
               
               if (response.ok) {
