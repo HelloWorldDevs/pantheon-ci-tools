@@ -8,142 +8,32 @@ jobs:
   process_pr_to_jira:
     runs-on: ubuntu-latest
     steps:
-      - name: Extract Jira issue key
-        id: extract_issue_key
-        run: |
-          # Debug info
-          echo "PR Title: ${{ github.event.pull_request.title }}"
-          echo "Branch Name: ${{ github.head_ref || github.ref_name }}"
-          PR_BODY="${{ github.event.pull_request.body }}"
-          echo "PR Body Preview: ${PR_BODY:0:100}"
-          
-          # Try to get issue key from PR title
-          ISSUE_KEY=$(echo "${{ github.event.pull_request.title }}" | grep -o '[A-Z]\+-[0-9]\+' || echo "")
-          echo "Issue key from title: $ISSUE_KEY"
+      - name: Extract Jira issue key from PR title
+        id: extract_from_title
+        run: echo "ISSUE_KEY=$(echo "${{ github.event.pull_request.title }}" | grep -o '[A-Z]\+-[0-9]\+' || echo "")" >> $GITHUB_OUTPUT
 
-          # If not found in title, try PR body
-          if [ -z "$ISSUE_KEY" ] && [ -n "${{ github.event.pull_request.body }}" ]; then
-            ISSUE_KEY=$(echo "${{ github.event.pull_request.body }}" | grep -o '[A-Z]\+-[0-9]\+' | head -1 || echo "")
-            echo "Issue key from body: $ISSUE_KEY"
-          fi
+      - name: Extract Jira issue key from PR body
+        id: extract_from_body
+        if: steps.extract_from_title.outputs.ISSUE_KEY == ''
+        run: echo "ISSUE_KEY=$(echo "${{ github.event.pull_request.body }}" | grep -o '[A-Z]\+-[0-9]\+' | head -1 || echo "")" >> $GITHUB_OUTPUT
 
-          # If still not found, try branch name
-          if [ -z "$ISSUE_KEY" ]; then
-            ISSUE_KEY=$(echo "${{ github.head_ref || github.ref_name }}" | grep -o '[A-Z]\+-[0-9]\+' | head -1 || echo "")
-            echo "Issue key from branch: $ISSUE_KEY"
-          fi
+      - name: Extract Jira issue key from branch name
+        id: extract_from_branch
+        if: steps.extract_from_title.outputs.ISSUE_KEY == '' && steps.extract_from_body.outputs.ISSUE_KEY == ''
+        run: echo "ISSUE_KEY=$(echo "${{ github.head_ref || github.ref_name }}" | grep -o '[A-Z]\+-[0-9]\+' | head -1 || echo "")" >> $GITHUB_OUTPUT
 
-          echo "ISSUE_KEY=$ISSUE_KEY" >> $GITHUB_OUTPUT
-          echo "Final extracted Jira issue key: $ISSUE_KEY"
+      - name: Set final issue key
+        id: set_issue_key
+        run: echo "ISSUE_KEY=${{ steps.extract_from_title.outputs.ISSUE_KEY || steps.extract_from_body.outputs.ISSUE_KEY || steps.extract_from_branch.outputs.ISSUE_KEY }}" >> $GITHUB_OUTPUT
 
       - name: Post to Jira
-        if: steps.extract_issue_key.outputs.ISSUE_KEY != ''
+        if: steps.set_issue_key.outputs.ISSUE_KEY != ''
+        uses: atlassian/gajira-comment@master
+        with:
+          issue: ${{ steps.set_issue_key.outputs.ISSUE_KEY }}
+          comment: |
+            PR: "${{ github.event.pull_request.title }}" - ${{ github.event.pull_request.html_url }}
         env:
           JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
-          JIRA_USER: ${{ secrets.JIRA_USER }}
-          JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
-        run: |
-          # Verify Jira credentials are available (without exposing them)
-          if [ -z "$JIRA_BASE_URL" ]; then
-            echo "Error: JIRA_BASE_URL is not set in GitHub secrets"
-            exit 1
-          fi
-
-          if [ -z "$JIRA_USER" ]; then
-            echo "Error: JIRA_USER is not set in GitHub secrets"
-            exit 1
-          fi
-
-          if [ -z "$JIRA_TOKEN" ]; then
-            echo "Error: JIRA_TOKEN is not set in GitHub secrets"
-            exit 1
-          fi
-
-          # Prepare the comment
-          PR_URL="${{ github.event.pull_request.html_url }}"
-          PR_TITLE="${{ github.event.pull_request.title }}"
-          ISSUE_KEY="${{ steps.extract_issue_key.outputs.ISSUE_KEY }}"
-          
-          echo "Posting comment about PR '$PR_TITLE' to Jira issue $ISSUE_KEY"
-          echo "Using Jira URL: $JIRA_BASE_URL"
-          
-          # Create the JSON payload for Jira API v3 (Atlassian Document Format)
-          PAYLOAD=$(jq -n \
-            --arg title "$PR_TITLE" \
-            --arg url "$PR_URL" \
-            '{
-              "body": {
-                "type": "doc",
-                "version": 1,
-                "content": [
-                  {
-                    "type": "paragraph",
-                    "content": [
-                      {
-                        "type": "text",
-                        "text": "PR: "
-                      },
-                      {
-                        "type": "text",
-                        "text": $title,
-                        "marks": [
-                          {
-                            "type": "bold"
-                          }
-                        ]
-                      },
-                      {
-                        "type": "text",
-                        "text": " - "
-                      },
-                      {
-                        "type": "text",
-                        "text": "View on GitHub",
-                        "marks": [
-                          {
-                            "type": "link",
-                            "attrs": {
-                              "href": $url
-                            }
-                          }
-                        ]
-                      }
-                    ]
-                  }
-                ]
-              }
-            }')
-
-          # First verify the issue exists
-          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: Basic $(echo -n $JIRA_USER:$JIRA_TOKEN | base64)" \
-            "$JIRA_BASE_URL/rest/api/3/issue/$ISSUE_KEY")
-
-          if [ "$HTTP_STATUS" != "200" ]; then
-            echo "Error: Issue $ISSUE_KEY returned HTTP status $HTTP_STATUS - issue may not exist or you may not have permission"
-            echo "Trying anyway in case it's just a permissions issue on GET but not POST..."
-          fi
-
-          # Post comment to Jira with detailed output
-          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" \
-            -H "Authorization: Basic $(echo -n $JIRA_USER:$JIRA_TOKEN | base64)" \
-            -H "Content-Type: application/json" \
-            -d "$PAYLOAD" \
-            "$JIRA_BASE_URL/rest/api/3/issue/$ISSUE_KEY/comment")
-
-          # Extract HTTP status from response
-          HTTP_STATUS=$(echo "$RESPONSE" | grep HTTP_STATUS | cut -d':' -f2)
-          RESPONSE_BODY=$(echo "$RESPONSE" | grep -v HTTP_STATUS)
-
-          # Check if request was successful
-          if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
-            echo "✅ Comment successfully posted to Jira issue $ISSUE_KEY"
-          else
-            echo "❌ Failed to post comment to Jira. HTTP Status: $HTTP_STATUS"
-            echo "Response body: $RESPONSE_BODY"
-            echo "This could be because:"
-            echo "1. The issue $ISSUE_KEY doesn't exist"
-            echo "2. The user doesn't have permission to comment on this issue"
-            echo "3. The Jira API URL is incorrect"
-            echo "4. The authentication credentials are incorrect"
-          fi
+          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_TOKEN }}
