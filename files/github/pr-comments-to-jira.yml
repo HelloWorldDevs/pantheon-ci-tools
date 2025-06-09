@@ -1,9 +1,6 @@
 name: PR Comments to Jira
 
 on:
-  # PR changes (create, update, etc)
-  pull_request:
-    types: [synchronize, reopened, edited]
   # Regular comments on PRs
   issue_comment:
     types: [created]
@@ -15,14 +12,13 @@ on:
     types: [submitted]
 
 jobs:
-  process_pr_to_jira:
+  pr_commented:
+    # This job only runs for pull request comments
+    name: PR comment
     runs-on: ubuntu-latest
-    # Run for PR events and PR-related comments (but not regular issues)
-    if: |
-      github.event_name == 'pull_request' ||
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request) || 
-      github.event_name == 'pull_request_review_comment' ||
-      github.event_name == 'pull_request_review'
+    # Only run if this is related to a PR (not a regular issue)
+
+    if: ${{ github.event.issue.pull_request }}
     steps:
       - name: Debug event info
         run: |
@@ -52,14 +48,7 @@ jobs:
             let pullRequest = null;
             
             // Extract info based on event type
-            if (eventName === 'pull_request') {
-              // Direct PR event (opened, edited, etc)
-              console.log('Handling pull_request event');
-              pullRequest = context.payload.pull_request;
-              const action = context.payload.action;
-              commentBody = `PR ${action}: ${pullRequest.title}`;
-              commentAuthor = pullRequest.user.login;
-            } else if (eventName === 'issue_comment') {
+            if (eventName === 'issue_comment') {
               // Regular PR comment
               console.log('Handling issue_comment event');
               prUrl = context.payload.issue.pull_request.url;
