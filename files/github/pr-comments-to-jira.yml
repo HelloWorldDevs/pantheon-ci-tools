@@ -11,21 +11,29 @@ jobs:
       - name: Extract Jira issue key
         id: extract_issue_key
         run: |
+          # Debug info
+          echo "PR Title: ${{ github.event.pull_request.title }}"
+          echo "Branch Name: ${{ github.head_ref || github.ref_name }}"
+          echo "PR Body Preview: ${${{ github.event.pull_request.body }}:0:100}..."
+          
           # Try to get issue key from PR title
           ISSUE_KEY=$(echo "${{ github.event.pull_request.title }}" | grep -o '[A-Z]\+-[0-9]\+' || echo "")
+          echo "Issue key from title: $ISSUE_KEY"
 
           # If not found in title, try PR body
           if [ -z "$ISSUE_KEY" ] && [ -n "${{ github.event.pull_request.body }}" ]; then
             ISSUE_KEY=$(echo "${{ github.event.pull_request.body }}" | grep -o '[A-Z]\+-[0-9]\+' | head -1 || echo "")
+            echo "Issue key from body: $ISSUE_KEY"
           fi
 
           # If still not found, try branch name
           if [ -z "$ISSUE_KEY" ]; then
             ISSUE_KEY=$(echo "${{ github.head_ref || github.ref_name }}" | grep -o '[A-Z]\+-[0-9]\+' | head -1 || echo "")
+            echo "Issue key from branch: $ISSUE_KEY"
           fi
 
           echo "ISSUE_KEY=$ISSUE_KEY" >> $GITHUB_OUTPUT
-          echo "Extracted Jira issue key: $ISSUE_KEY"
+          echo "Final extracted Jira issue key: $ISSUE_KEY"
 
       - name: Post to Jira
         if: steps.extract_issue_key.outputs.ISSUE_KEY != ''
@@ -34,12 +42,34 @@ jobs:
           JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
           JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
         run: |
+          # Verify Jira credentials are available (without exposing them)
+          if [ -z "$JIRA_BASE_URL" ]; then
+            echo "Error: JIRA_BASE_URL is not set in GitHub secrets"
+            exit 1
+          fi
+
+          if [ -z "$JIRA_USER_EMAIL" ]; then
+            echo "Error: JIRA_USER_EMAIL is not set in GitHub secrets"
+            exit 1
+          fi
+
+          if [ -z "$JIRA_API_TOKEN" ]; then
+            echo "Error: JIRA_API_TOKEN is not set in GitHub secrets"
+            exit 1
+          fi
+
           # Prepare the comment
-          COMMENT="PR ${{ github.event.pull_request.title }}: ${{ github.event.pull_request.html_url }}"
+          PR_URL="${{ github.event.pull_request.html_url }}"
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          ISSUE_KEY="${{ steps.extract_issue_key.outputs.ISSUE_KEY }}"
           
-          # Create the JSON payload
+          echo "Posting comment about PR '$PR_TITLE' to Jira issue $ISSUE_KEY"
+          echo "Using Jira URL: $JIRA_BASE_URL"
+          
+          # Create the JSON payload for Jira API v3 (Atlassian Document Format)
           PAYLOAD=$(jq -n \
-            --arg comment "$COMMENT" \
+            --arg title "$PR_TITLE" \
+            --arg url "$PR_URL" \
             '{
               "body": {
                 "type": "doc",
@@ -50,16 +80,29 @@ jobs:
                     "content": [
                       {
                         "type": "text",
-                        "text": "PR Opened: "
+                        "text": "PR: "
                       },
                       {
                         "type": "text",
-                        "text": $comment,
+                        "text": $title,
+                        "marks": [
+                          {
+                            "type": "bold"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "text",
+                        "text": " - "
+                      },
+                      {
+                        "type": "text",
+                        "text": "View on GitHub",
                         "marks": [
                           {
                             "type": "link",
                             "attrs": {
-                              "href": $comment
+                              "href": $url
                             }
                           }
                         ]
@@ -70,11 +113,36 @@ jobs:
               }
             }')
 
-          # Post comment to Jira
-          curl -X POST \
+          # First verify the issue exists
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Basic $(echo -n $JIRA_USER_EMAIL:$JIRA_API_TOKEN | base64)" \
+            "$JIRA_BASE_URL/rest/api/3/issue/$ISSUE_KEY")
+
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "Error: Issue $ISSUE_KEY returned HTTP status $HTTP_STATUS - issue may not exist or you may not have permission"
+            echo "Trying anyway in case it's just a permissions issue on GET but not POST..."
+          fi
+
+          # Post comment to Jira with detailed output
+          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" \
             -H "Authorization: Basic $(echo -n $JIRA_USER_EMAIL:$JIRA_API_TOKEN | base64)" \
             -H "Content-Type: application/json" \
             -d "$PAYLOAD" \
-            "$JIRA_BASE_URL/rest/api/3/issue/${{ steps.extract_issue_key.outputs.ISSUE_KEY }}/comment"
+            "$JIRA_BASE_URL/rest/api/3/issue/$ISSUE_KEY/comment")
 
-          echo "Comment posted to Jira issue ${{ steps.extract_issue_key.outputs.ISSUE_KEY }}"
+          # Extract HTTP status from response
+          HTTP_STATUS=$(echo "$RESPONSE" | grep HTTP_STATUS | cut -d':' -f2)
+          RESPONSE_BODY=$(echo "$RESPONSE" | grep -v HTTP_STATUS)
+
+          # Check if request was successful
+          if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+            echo "✅ Comment successfully posted to Jira issue $ISSUE_KEY"
+          else
+            echo "❌ Failed to post comment to Jira. HTTP Status: $HTTP_STATUS"
+            echo "Response body: $RESPONSE_BODY"
+            echo "This could be because:"
+            echo "1. The issue $ISSUE_KEY doesn't exist"
+            echo "2. The user doesn't have permission to comment on this issue"
+            echo "3. The Jira API URL is incorrect"
+            echo "4. The authentication credentials are incorrect"
+          fi
