@@ -132,6 +132,17 @@ jobs:
           paths:
             - web/themes/
       - run:
+          name: Remove .gitignore files from theme directories
+          command: |
+            # Find and remove all .gitignore files in theme subdirectories
+            if [ -n "${THEME_PATH}" ] && [ -d "${THEME_PATH}" ]; then
+              echo "Removing .gitignore files from theme directory: ${THEME_PATH}"
+              find ${THEME_PATH} -type f -name ".gitignore" -exec rm -f {} \;
+              echo "Removed all .gitignore files from theme directories"
+            else
+              echo "Theme path not found or not defined. Skipping .gitignore removal."
+            fi
+      - run:
           name: Preparing code for Pantheon
           command: |
             # Cutting root .gitignore so composer dependencies can be committed
