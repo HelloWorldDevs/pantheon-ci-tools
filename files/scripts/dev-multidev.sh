@@ -44,12 +44,6 @@ terminus -n drush "$TERMINUS_SITE.$TERMINUS_ENV" -- status -vvv
 echo "Running database updates..."
 terminus -n drush "$TERMINUS_SITE.$TERMINUS_ENV" -- updatedb -y
 
-# Import configuration if available
-if [ -f "config/sync/system.site.yml" ]; then
-  echo "Running config import..."
-  terminus -n drush "$TERMINUS_SITE.$TERMINUS_ENV" -- config-import --yes
-fi
-
 # Clear Drupal caches
 echo "Clearing Drupal caches..."
 terminus -n drush "$TERMINUS_SITE.$TERMINUS_ENV" -- cr
