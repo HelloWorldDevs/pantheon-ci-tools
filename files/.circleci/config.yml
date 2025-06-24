@@ -286,7 +286,9 @@ workflows:
   build_test_notify:
     jobs:
       # [job] Primary build and deployment job
-      - build_and_deploy
+      - build_and_deploy:
+          context:
+            - GITHUB_TOKEN
       # [job] Playwright visual regression tests
       - playwright_visual_tests:
           requires:
