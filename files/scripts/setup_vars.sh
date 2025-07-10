@@ -1,3 +1,5 @@
+#!/bin/bash
+
 # Set TERMINUS_SITE with fallback to project name
 export TERMINUS_SITE="${TERMINUS_SITE:-${DEFAULT_SITE:-$CIRCLE_PROJECT_REPONAME}}"
 echo "Using TERMINUS_SITE: $TERMINUS_SITE"
