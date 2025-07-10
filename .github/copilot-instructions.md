@@ -30,6 +30,7 @@ This document outlines the best practices and conventions to follow when working
 - **Branch Naming**: Use branch names that reflect the jira ticket or feature being worked on, e.g., `JIRA-123-add-new-feature` or `JIRA-456-fix-bug`. Do not use slashes (`/`) in branch names.
 - **Never Commit Sensitive Data**: Ensure that no sensitive data (like API keys or passwords) is committed to the repository.
 - **Never Commit changes to main**: All changes should be made in feature branches and merged into `main` via pull requests.
+- **Always check the diff** of changes using `git diff` before making a commit to ensure accuracy and compliance with the instructions.
 
 ### GitHub Actions
 
@@ -54,3 +55,9 @@ Responses should consider the following files and directories in the workspace:
 - `README.md` for project overview and instructions.
 - `src/` for source code implementation details.
 - `files/` for test routes and GitHub workflows.
+
+# Mandatory Review
+Always review this file before performing any task or generating any response. This file is the primary source of truth and overrides any assumptions or prior context.
+
+# Error Handling
+If the instructions are not followed, provide a detailed explanation of the deviation and steps to correct it.
