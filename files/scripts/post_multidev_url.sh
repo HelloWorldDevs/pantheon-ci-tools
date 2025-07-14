@@ -1,4 +1,5 @@
 #!/bin/bash
+
 set -euo pipefail
 
 # Exit immediately if this is the master branch
