@@ -26,6 +26,9 @@ class Installer
     {
         $this->io->write('  - Copying CI configuration files...');
         $this->copyFiles();
+
+        $configSplitInstaller = new InstallConfigSplit($this->io, $this->findProjectRoot());
+        $configSplitInstaller->install();
     }
 
     /**
