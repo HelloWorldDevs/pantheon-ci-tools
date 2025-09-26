@@ -131,6 +131,7 @@ jobs:
           root: .
           paths:
             - web/themes/
+            - test_routes.json
       - run:
           name: Remove .gitignore files from theme directories
           command: |
@@ -203,6 +204,7 @@ jobs:
             - .ci/
             - .circleci/
             - .git/
+            - test_routes.json
 
   # Playwright visual regression testing job
   playwright_visual_tests:
