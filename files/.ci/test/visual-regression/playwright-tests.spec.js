@@ -11,23 +11,25 @@ const { test, expect } = require("@playwright/test");
 const fs = require("fs");
 const path = require("path");
 
-// Get environment variables
-const testUrl = process.env.TESTING_URL;
 // Set up environment variables with defaults
 const ENV = {
   // Testing URL - try to get from environment variables or use Lando URL
-  TESTING_URL: process.env.TESTING_URL || "http://localhost:3000",
+  TESTING_URL: (JSON.parse(process.env.LANDO_INFO || "{}").appserver_nginx?.urls || [])[0] || "http://localhost:3000",
   // Artifacts directory for saving screenshots
   ARTIFACTS_DIR: process.env.ARTIFACTS_DIR || path.join(process.cwd(), "test-results"),
   // CI info
   CI_BUILD_URL: process.env.CI_BUILD_URL || "local-build",
   CI_PROJECT_USERNAME: process.env.CI_PROJECT_USERNAME || "local-user",
-  CI_PROJECT_REPONAME: process.env.CI_PROJECT_REPONAME || process.env.LANDO_APP_NAME || "local-project",
+  CI_PROJECT_REPONAME:
+    process.env.CI_PROJECT_REPONAME ||
+    process.env.LANDO_APP_NAME ||
+    "local-project",
   // Test configuration
   PERCY_TOKEN: process.env.PERCY_TOKEN || "",
   VISUAL_REGRESSION_ENABLED: process.env.VISUAL_REGRESSION_ENABLED !== "false",
   UPDATE_SNAPSHOTS: process.env.UPDATE_SNAPSHOTS === "true",
-  RETRY_WITH_HIGHER_THRESHOLD: process.env.RETRY_WITH_HIGHER_THRESHOLD === "true",
+  RETRY_WITH_HIGHER_THRESHOLD:
+    process.env.RETRY_WITH_HIGHER_THRESHOLD === "true",
   // SSL settings for local development
   IGNORE_HTTPS_ERRORS: process.env.IGNORE_HTTPS_ERRORS === "true" || true, // Always true for now
   // Timeout settings
@@ -35,8 +37,12 @@ const ENV = {
   NAVIGATION_TIMEOUT: parseInt(process.env.NAVIGATION_TIMEOUT) || 30000,
 };
 
-const defaultMaxDiffPixelRatio = process.env.MAX_DIFF_PIXEL_RATIO ? parseFloat(process.env.MAX_DIFF_PIXEL_RATIO) : 0.02; // Default to 2% if not set
-const retryMaxDiffPixelRatio = process.env.RETRY_MAX_DIFF_PIXEL_RATIO ? parseFloat(process.env.RETRY_MAX_DIFF_PIXEL_RATIO) : 0.04; // Default to 4% for retry if not set
+const defaultMaxDiffPixelRatio = process.env.MAX_DIFF_PIXEL_RATIO
+  ? parseFloat(process.env.MAX_DIFF_PIXEL_RATIO)
+  : 0.02; // Default to 2% if not set
+const retryMaxDiffPixelRatio = process.env.RETRY_MAX_DIFF_PIXEL_RATIO
+  ? parseFloat(process.env.RETRY_MAX_DIFF_PIXEL_RATIO)
+  : 0.04; // Default to 4% for retry if not set
 
 // Configure Playwright to ignore HTTPS errors for local domains
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
@@ -52,28 +58,62 @@ console.log("Test configuration:");
 console.log(`Testing URL: ${ENV.TESTING_URL}`);
 console.log(`Artifacts directory: ${ENV.ARTIFACTS_DIR}`);
 console.log(`CI Build: ${ENV.CI_BUILD_URL}`);
-console.log(`Visual regression testing enabled: ${ENV.VISUAL_REGRESSION_ENABLED}`);
+console.log(
+  `Visual regression testing enabled: ${ENV.VISUAL_REGRESSION_ENABLED}`
+);
 
-function findTestRoutesFile(startDir, maxDepth = 4) {
-  let currentDir = startDir;
-  let depth = 0;
+function resolveTestRoutesPath() {
+  const candidateRoots = [
+    process.env.TEST_ROUTES_PATH,
+    process.env.CI_PROJECT_DIR,
+    process.env.CIRCLE_WORKING_DIRECTORY,
+    path.resolve(__dirname),
+    process.cwd(),
+  ].filter(Boolean);
 
-  while (depth <= maxDepth) {
+  const normalizedRoots = Array.from(
+    new Set(candidateRoots.map((candidate) => path.resolve(candidate)))
+  );
+
+  for (const root of normalizedRoots) {
+    const projectTestRoutes = path.join(root, "test_routes.json");
+    if (fs.existsSync(projectTestRoutes)) {
+      return projectTestRoutes;
+    }
+  }
+
+  // Try ascending from the current directory as a fallback.
+  let currentDir = path.resolve(__dirname);
+  for (let depth = 0; depth <= 6; depth++) {
     const testPath = path.join(currentDir, "test_routes.json");
-
     if (fs.existsSync(testPath)) {
       return testPath;
     }
 
     const parentDir = path.dirname(currentDir);
-
-    // Stop if we've reached the filesystem root
     if (parentDir === currentDir) {
       break;
     }
-
     currentDir = parentDir;
-    depth++;
+  }
+
+  // Finally, look for the vendor fallback using any known root.
+  for (const root of normalizedRoots) {
+    const vendorTestRoutes = path.join(
+      root,
+      "vendor",
+      "helloworlddevs",
+      "pantheon-ci-tools",
+      "files",
+      "test_routes.json"
+    );
+
+    if (fs.existsSync(vendorTestRoutes)) {
+      console.log(
+        `Project test_routes.json not found. Falling back to vendor defaults at: ${vendorTestRoutes}`
+      );
+      return vendorTestRoutes;
+    }
   }
 
   return null;
@@ -85,7 +125,7 @@ let hideSelectors = [];
 
 // Try to find and load test routes
 try {
-  const testRoutesPath = findTestRoutesFile(__dirname, 4);
+  const testRoutesPath = resolveTestRoutesPath();
 
   if (testRoutesPath) {
     console.log(`Found test_routes.json at: ${testRoutesPath}`);
@@ -94,12 +134,14 @@ try {
     // Handle the new JSON structure with routes and hideSelectors
     // Using the global hideSelectors array - no let declaration here
     hideSelectors = [];
-    
-    if (routesData.routes && typeof routesData.routes === 'object') {
+
+    if (routesData.routes && typeof routesData.routes === "object") {
       // Use the routes object for test paths
       paths = Object.entries(routesData.routes).map(([name, url]) => {
         // Remove domain part if present, we only need the path
-        const parsedUrl = new URL(url.startsWith("http") ? url : `http://example.com${url}`);
+        const parsedUrl = new URL(
+          url.startsWith("http") ? url : `http://example.com${url}`
+        );
         return {
           name,
           url: parsedUrl.pathname + parsedUrl.search,
@@ -110,7 +152,9 @@ try {
       // Legacy format - directly use the JSON object as routes
       paths = Object.entries(routesData).map(([name, url]) => {
         // Remove domain part if present, we only need the path
-        const parsedUrl = new URL(url.startsWith("http") ? url : `http://example.com${url}`);
+        const parsedUrl = new URL(
+          url.startsWith("http") ? url : `http://example.com${url}`
+        );
         return {
           name,
           url: parsedUrl.pathname + parsedUrl.search,
@@ -118,11 +162,13 @@ try {
       });
       console.log(`✅ Loaded ${paths.length} test routes from legacy format`);
     }
-    
+
     // Get hide selectors if available
     if (routesData.hideSelectors && Array.isArray(routesData.hideSelectors)) {
       hideSelectors = routesData.hideSelectors;
-      console.log(`✅ Loaded ${hideSelectors.length} selectors to hide during testing`);
+      console.log(
+        `✅ Loaded ${hideSelectors.length} selectors to hide during testing`
+      );
     }
 
     console.log(`✅ Loaded ${paths.length} test routes from ${testRoutesPath}`);
@@ -188,7 +234,9 @@ paths.forEach(({ name, url }) => {
 
     // Test each viewport
     ["mobile", "tablet", "desktop"].forEach((viewport) => {
-      test(`${name} should look the same on ${viewport}`, async ({ context }) => {
+      test(`${name} should look the same on ${viewport}`, async ({
+        context,
+      }) => {
         // Set viewport size based on device type
         const viewportSizes = {
           mobile: { width: 320, height: 480 },
@@ -241,20 +289,29 @@ paths.forEach(({ name, url }) => {
         const isRetry = process.env.RETRY_WITH_HIGHER_THRESHOLD === "true";
 
         // Log whether we're doing a regular test or a retry with higher thresholds
-        console.log(`${isRetry ? "RETRY with higher thresholds" : "Regular test"} for ${name} on ${viewport}`);
-        
+        console.log(
+          `${
+            isRetry ? "RETRY with higher thresholds" : "Regular test"
+          } for ${name} on ${viewport}`
+        );
+
         // Hide elements based on the selectors defined in test_routes.json
         if (hideSelectors && hideSelectors.length > 0) {
-          console.log(`Hiding ${hideSelectors.length} elements for visual testing`);
-          
+          console.log(
+            `Hiding ${hideSelectors.length} elements for visual testing`
+          );
+
           // Create CSS to hide all specified selectors
           const hideSelectorsCSS = hideSelectors
-            .map(selector => `${selector} { visibility: hidden !important; display: none !important; }`)
-            .join('\n');
-          
+            .map(
+              (selector) =>
+                `${selector} { visibility: hidden !important; display: none !important; }`
+            )
+            .join("\n");
+
           // Apply the hiding CSS
           await testPage.addStyleTag({
-            content: hideSelectorsCSS
+            content: hideSelectorsCSS,
           });
         } else {
           // Fallback to just hiding the recaptcha if no hideSelectors are defined
@@ -267,20 +324,22 @@ paths.forEach(({ name, url }) => {
           `,
           });
         }
-        
+
         // Scroll the page up and down to trigger any scroll-based JavaScript events
-        console.log(`Scrolling through page for ${name} on ${viewport} to trigger scroll events`);
+        console.log(
+          `Scrolling through page for ${name} on ${viewport} to trigger scroll events`
+        );
         await testPage.evaluate(() => {
           return new Promise((resolve) => {
             // Get the full page height
             const pageHeight = document.body.scrollHeight;
             // Start at the top
             window.scrollTo(0, 0);
-            
+
             // Scroll down slowly in increments
             let currentPosition = 0;
             const scrollStep = Math.min(500, pageHeight / 5); // Either 500px or 1/5 of page height
-            
+
             function scrollDown() {
               if (currentPosition < pageHeight) {
                 currentPosition += scrollStep;
@@ -291,7 +350,7 @@ paths.forEach(({ name, url }) => {
                 scrollUp();
               }
             }
-            
+
             function scrollUp() {
               if (currentPosition > 0) {
                 currentPosition -= scrollStep;
@@ -303,23 +362,28 @@ paths.forEach(({ name, url }) => {
                 setTimeout(resolve, 300); // Short delay after finishing scroll
               }
             }
-            
+
             // Start the scroll sequence
             setTimeout(scrollDown, 100);
           });
         });
-        
+
         // Reset to top of page
         await testPage.evaluate(() => window.scrollTo(0, 0));
-        
+
         // Add a delay to ensure all content is loaded before taking the screenshot
         await testPage.waitForTimeout(3000); // 3 second delay
-        
-        await expect(testPage).toHaveScreenshot(`${name.replace(/ /g, "-")}-${viewport}.png`, {
-          maxDiffPixelRatio: isRetry ? retryMaxDiffPixelRatio : defaultMaxDiffPixelRatio,
-          threshold: 0.2, // Consistent color sensitivity, aligns with Playwright default
-          fullPage: true // Capture the full page, not just the viewport
-        });
+
+        await expect(testPage).toHaveScreenshot(
+          `${name.replace(/ /g, "-")}-${viewport}.png`,
+          {
+            maxDiffPixelRatio: isRetry
+              ? retryMaxDiffPixelRatio
+              : defaultMaxDiffPixelRatio,
+            threshold: 0.2, // Consistent color sensitivity, aligns with Playwright default
+            fullPage: true, // Capture the full page, not just the viewport
+          }
+        );
 
         // Close the test page
         await testPage.close();
