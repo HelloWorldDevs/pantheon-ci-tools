@@ -14,7 +14,11 @@ const path = require("path");
 // Set up environment variables with defaults
 const ENV = {
   // Testing URL - try to get from environment variables or use Lando URL
+<<<<<<< HEAD
+  TESTING_URL: (JSON.parse(process.env.LANDO_INFO || "{}").appserver_nginx?.urls || [])[0] || "http://localhost:3000",
+=======
   TESTING_URL: process.env.DEV_SITE_URL || "http://localhost:3000",
+>>>>>>> 7401692 (fix for vrt)
   // Artifacts directory for saving screenshots
   ARTIFACTS_DIR: process.env.ARTIFACTS_DIR || path.join(process.cwd(), "test-results"),
   // CI info
