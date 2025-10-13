@@ -74,6 +74,10 @@ class InstallConfigSplit {
    * @return bool True if successful, false if not.
    */
   protected function modifyLandoFile() : bool {
+    // testing to see if I broke deploys on other projects -RA
+    return true;
+
+    
     $filePath = rtrim($this->projectRoot, '/'). '/.lando.yml';
     $backupFile = $filePath . '.bak';
 
