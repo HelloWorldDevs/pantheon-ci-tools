@@ -310,7 +310,19 @@ class InstallConfigSplit {
       if (\function_exists('yaml_emit')) {
         return (string) \yaml_emit($data);
       }
-      return Yaml::dump($data, 6, 2);
+
+      // Use specific flags to ensure proper Lando formatting:
+      // - DUMP_EMPTY_ARRAY_AS_SEQUENCE: ensures arrays are formatted as YAML sequences
+      // - DUMP_NULL_AS_TILDE: represents null as ~ instead of null
+      // - Set inline level to 4 to prevent excessive inlining
+      $flags = Yaml::DUMP_EMPTY_ARRAY_AS_SEQUENCE | Yaml::DUMP_NULL_AS_TILDE;
+      $yamlOutput = Yaml::dump($data, 4, 2, $flags);
+
+      // Post-process to remove quotes around simple command strings
+      // This regex removes quotes from strings that look like Lando commands
+      $yamlOutput = preg_replace("/^(\s+- )'([^']*: [^']*)'$/m", '$1$2', $yamlOutput);
+
+      return $yamlOutput;
     } catch (\Throwable $e) {
       $this->io->writeError('  - YAML dump error: '.$e->getMessage());
       return "# YAML dump failed; JSON fallback\n".json_encode($data, JSON_PRETTY_PRINT);
