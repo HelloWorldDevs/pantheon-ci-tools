@@ -312,15 +312,19 @@ class InstallConfigSplit {
       }
 
       // Use specific flags to ensure proper Lando formatting:
-      // - DUMP_EMPTY_ARRAY_AS_SEQUENCE: ensures arrays are formatted as YAML sequences
+      // - DUMP_EMPTY_ARRAY_AS_SEQUENCE: ensures arrays are formatted as YAML sequences  
       // - DUMP_NULL_AS_TILDE: represents null as ~ instead of null
-      // - Set inline level to 4 to prevent excessive inlining
+      // - Set inline level to 6 and use proper indentation
       $flags = Yaml::DUMP_EMPTY_ARRAY_AS_SEQUENCE | Yaml::DUMP_NULL_AS_TILDE;
-      $yamlOutput = Yaml::dump($data, 4, 2, $flags);
+      $yamlOutput = Yaml::dump($data, 6, 2, $flags);
 
-      // Post-process to remove quotes around simple command strings
-      // This regex removes quotes from strings that look like Lando commands
-      $yamlOutput = preg_replace("/^(\s+- )'([^']*: [^']*)'$/m", '$1$2', $yamlOutput);
+      // Post-process to remove quotes around Lando command strings
+      // Remove quotes from any string that looks like "service: command" in array items
+      $yamlOutput = preg_replace("/^(\s+- )['\"]([a-zA-Z0-9_-]+:\s*[^'\"]*)['\"]$/m", '$1$2', $yamlOutput);
+      // Handle cmd values that are quoted (both single values and in arrays)
+      $yamlOutput = preg_replace("/^(\s+cmd:\s*)['\"]([a-zA-Z0-9_-]+:\s*[^'\"]*)['\"]$/m", '$1$2', $yamlOutput);
+      // Handle multiline array formatting issues - remove extra newlines before array items
+      $yamlOutput = preg_replace("/(\s+- )\n(\s+)([a-zA-Z0-9_-]+:)/m", '$1$3', $yamlOutput);
 
       return $yamlOutput;
     } catch (\Throwable $e) {
