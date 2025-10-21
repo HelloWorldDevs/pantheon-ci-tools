@@ -319,12 +319,15 @@ class InstallConfigSplit {
       $yamlOutput = Yaml::dump($data, 6, 2, $flags);
 
       // Post-process to remove quotes around Lando command strings
+      // First fix multiline array formatting issues - convert split array items to single lines
+      $yamlOutput = preg_replace("/^(\s+)-\s*\n(\s+)([a-zA-Z0-9_-]+:\s*[^'\"\n]*)\s*$/m", '$1- $3', $yamlOutput);
+
       // Remove quotes from any string that looks like "service: command" in array items
-      $yamlOutput = preg_replace("/^(\s+- )['\"]([a-zA-Z0-9_-]+:\s*[^'\"]*)['\"]$/m", '$1$2', $yamlOutput);
-      // Handle cmd values that are quoted (both single values and in arrays)
-      $yamlOutput = preg_replace("/^(\s+cmd:\s*)['\"]([a-zA-Z0-9_-]+:\s*[^'\"]*)['\"]$/m", '$1$2', $yamlOutput);
-      // Handle multiline array formatting issues - remove extra newlines before array items
-      $yamlOutput = preg_replace("/(\s+- )\n(\s+)([a-zA-Z0-9_-]+:)/m", '$1$3', $yamlOutput);
+      // This handles both simple commands and commands with quotes inside
+      $yamlOutput = preg_replace("/^(\s+- )['\"]([a-zA-Z0-9_-]+:\s*.*?)['\"]$/m", '$1$2', $yamlOutput);
+
+      // Handle cmd values that are quoted
+      $yamlOutput = preg_replace("/^(\s+cmd:\s*)['\"]([a-zA-Z0-9_-]+:\s*.*?)['\"]$/m", '$1$2', $yamlOutput);
 
       return $yamlOutput;
     } catch (\Throwable $e) {
