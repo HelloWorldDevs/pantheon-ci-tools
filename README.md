@@ -105,10 +105,72 @@ composer update helloworlddevs/pantheon-ci
 
 ## Development
 
+### Setup
+
 1. Clone the repository
-2. Run `composer install`
-3. Make your changes
-4. Test with a local project using `composer link`
+2. Run `composer install` to install dependencies
+3. Make your changes to the source code
+
+### Testing Your Changes
+
+To test your local changes without publishing to Github:
+
+#### Option 1: Local Test Script (Recommended)
+
+Run the built-in test that uses your local code directly:
+
+```bash
+php test_local_installer.php
+```
+
+This will:
+- Create a `sampleoutput/` directory with a mock Drupal project
+- Copy `lando-test.yml` as the sample `.lando.yml` file
+- Run your local installer code directly (not via Composer)
+- Show detailed analysis of what was added/modified
+- Install all CI files, Lando scripts, and modify `.lando.yml`
+
+Check the results in `sampleoutput/` to verify everything works correctly.
+
+#### Option 2: Test in a Real Project
+
+1. In your test Drupal project, add this to `composer.json`:
+
+```json
+{
+  "repositories": [
+    {
+      "type": "path",
+      "url": "/path/to/your/pantheon-ci-tools"
+    }
+  ],
+  "require-dev": {
+    "helloworlddevs/pantheon-ci-tools": "@dev"
+  }
+}
+```
+
+2. Allow the plugin and install:
+
+```bash
+composer config allow-plugins.helloworlddevs/pantheon-ci-tools true
+composer install
+```
+
+#### What Gets Installed
+
+The installer will:
+- Copy CI configuration files (`.circleci/`, `.ci/`, `.github/`)
+- Install Lando scripts (`lando/scripts/dev-config.sh`, `config-safety-check.sh`)
+- Add tooling commands to `.lando.yml` (`dev-config`, `config-check`, `safe-export`)
+- Add post-start and post-pull events to `.lando.yml`
+- Add `drupal/config_split` to `require-dev`
+
+#### Cleanup
+
+```bash
+rm -rf sampleoutput  # Remove test directory
+```
 
 ## License
 
