@@ -80,9 +80,22 @@ try {
     $result = $installer->install();
     
     if ($result) {
-        echo "✅ Installer completed successfully!\n\n";
+        echo "✅ First run completed successfully!\n\n";
     } else {
-        echo "❌ Installer reported failure\n\n";
+        echo "❌ First run reported failure\n\n";
+    }
+
+    // Run the installer AGAIN to test idempotency
+    echo "🔄 Running installer SECOND TIME to test idempotency...\n";
+    echo "====================================================\n";
+
+    $installer2 = new Installer($io);
+    $result2 = $installer2->install();
+
+    if ($result2) {
+        echo "✅ Second run completed successfully!\n\n";
+    } else {
+        echo "❌ Second run reported failure\n\n";
     }
     
 } catch (Exception $e) {
@@ -120,7 +133,14 @@ if (file_exists('.lando.yml')) {
     $foundSafeExport = strpos($modifiedLando, 'safe-export:') !== false;
     $foundPostStartEvent = strpos($modifiedLando, 'bash /app/lando/scripts/dev-config.sh enable') !== false;
     $foundPostPullEvent = strpos($modifiedLando, 'bash /app/lando/scripts/dev-config.sh disable') !== false;
-    
+
+    // Check for duplicates (should NOT exist after running twice)
+    $devConfigCount = substr_count($modifiedLando, 'dev-config:');
+    $configCheckCount = substr_count($modifiedLando, 'config-check:');
+    $safeExportCount = substr_count($modifiedLando, 'safe-export:');
+    $postStartEnableCount = substr_count($modifiedLando, 'bash /app/lando/scripts/dev-config.sh enable');
+    $postPullDisableCount = substr_count($modifiedLando, 'bash /app/lando/scripts/dev-config.sh disable');
+
     echo "✅ Tooling commands added:\n";
     echo "  - dev-config: " . ($foundDevConfig ? "✅" : "❌") . "\n";
     echo "  - config-check: " . ($foundConfigCheck ? "✅" : "❌") . "\n";
@@ -129,7 +149,14 @@ if (file_exists('.lando.yml')) {
     echo "✅ Events added:\n";
     echo "  - post-start dev setup: " . ($foundPostStartEvent ? "✅" : "❌") . "\n";
     echo "  - post-pull dev disable: " . ($foundPostPullEvent ? "✅" : "❌") . "\n\n";
-    
+
+    echo "🔄 Idempotency check (no duplicates after running twice):\n";
+    echo "  - dev-config appears: {$devConfigCount} time(s) " . ($devConfigCount === 1 ? "✅" : "❌") . "\n";
+    echo "  - config-check appears: {$configCheckCount} time(s) " . ($configCheckCount === 1 ? "✅" : "❌") . "\n";
+    echo "  - safe-export appears: {$safeExportCount} time(s) " . ($safeExportCount === 1 ? "✅" : "❌") . "\n";
+    echo "  - post-start enable appears: {$postStartEnableCount} time(s) " . ($postStartEnableCount === 1 ? "✅" : "❌") . "\n";
+    echo "  - post-pull disable appears: {$postPullDisableCount} time(s) " . ($postPullDisableCount === 1 ? "✅" : "❌") . "\n\n";
+
     // Check for formatting issues
     $hasQuotedCommands = strpos($modifiedLando, "'appserver:") !== false;
     $hasLineBreakIssues = preg_match("/- \n\s+appserver:/", $modifiedLando);
@@ -162,11 +189,17 @@ if (file_exists('.lando.yml')) {
     $allToolingAdded = $foundDevConfig && $foundConfigCheck && $foundSafeExport;
     $allEventsAdded = $foundPostStartEvent && $foundPostPullEvent;
     $goodFormatting = !$hasQuotedCommands && !$hasLineBreakIssues;
-    
-    if ($allToolingAdded && $allEventsAdded && $goodFormatting && $scriptsInstalled && $ciFilesInstalled) {
+    $isIdempotent = ($devConfigCount === 1) && ($configCheckCount === 1) && ($safeExportCount === 1) &&
+        ($postStartEnableCount === 1) && ($postPullDisableCount === 1);
+
+    if ($allToolingAdded && $allEventsAdded && $goodFormatting && $scriptsInstalled && $ciFilesInstalled && $isIdempotent) {
         echo "🎉 SUCCESS! All modifications applied correctly by LOCAL code!\n";
+        echo "✅ Installer is idempotent - no duplicates after running twice!\n";
     } else {
         echo "⚠️  Some issues found - check the analysis above\n";
+        if (!$isIdempotent) {
+            echo "❌ IDEMPOTENCY ISSUE: Installer created duplicates when run twice!\n";
+        }
     }
     
 } else {

@@ -75,7 +75,9 @@ class InstallConfigSplit {
    */
   protected function modifyLandoFile(): bool
   {
-    
+    // TEMP disable for now
+    return true;
+
     $filePath = rtrim($this->projectRoot, '/'). '/.lando.yml';
     $backupFile = $filePath . '.bak';
 
