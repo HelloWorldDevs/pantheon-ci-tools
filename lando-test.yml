@@ -1,0 +1,142 @@
+name: cowlitz
+recipe: pantheon
+config:
+  framework: drupal10
+  site: cowlitz-indian-tribe
+  id: 8281c982-4cf3-4472-9898-25d8d50df686
+  api_version: 1
+  web_docroot: true
+  database: pantheon
+  username: pantheon
+  password: pantheon
+  host: database
+  port: 3306
+  xdebug: debug
+  index: false
+proxy:
+  appserver_nginx:
+    - cowlitz.lando
+    - 'https://report.cowlitz.lando:9333'
+services:
+  appserver:
+    environment:
+      DRUSH_SITES: /app/drush/sites
+    overrides:
+      volumes:
+        - '~/.drush/sites:/app/drush/sites'
+  phpmyadmin:
+    type: phpmyadmin
+    hosts:
+      - database
+  node:
+    type: 'node:18'
+    build_as_root:
+      - 'cd /app/web/themes/custom/cowlitz_bootstrap && npm install'
+events:
+  post-start:
+    - node: 'cd /app/web/themes/custom/cowlitz_bootstrap && npm run build'
+    - appserver: 'cd $LANDO_MOUNT && composer install'
+  post-db-import:
+    - appserver: 'cd $LANDO_WEBROOT && drush cr'
+  post-pull:
+tooling:
+  pull:
+    options:
+      code:
+        default: none
+  xdebug-on:
+    service: appserver
+    description: 'Enables Xdebug'
+    cmd:
+      - 'docker-php-ext-enable xdebug && pkill -o -USR2 php-fpm'
+      - 'tput setaf 2 && echo "Xdebug On" && tput sgr 0 && echo'
+    user: root
+  xdebug-off:
+    service: appserver
+    description: 'Disables Xdebug'
+    cmd:
+      - 'rm /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini && pkill -o -USR2 php-fpm'
+      - 'tput setaf 1 && echo "Xdebug Off" && tput sgr 0 && echo'
+    user: root
+  logs-php:
+    service: appserver
+    description: 'Displays and tails PHP error logs'
+    cmd: 'tail -f /app/lando/logs/php_errors.log'
+  logs-xdebug:
+    service: appserver
+    description: 'Displays and tails Xdebug logs'
+    cmd: 'tail -f /app/lando/logs/xdebug.log'
+  logs-drupal:
+    service: appserver
+    description: 'Displays and tails Drupal logs using syslog module (because drush wd-show no longer supports tail)'
+    cmd:
+      - /app/lando/scripts/logs-drupal.sh
+    user: root
+  env-deploy:
+    service: appserver
+    description: 'Deploys to test or live remote Pantheon env (deploys code, updates database, imports config and clears caches)'
+    cmd:
+      - /app/lando/scripts/env-deploy.sh
+  env-config-import:
+    service: appserver
+    description: 'Updates database, imports config and clears caches on a remote Pantheon env'
+    cmd:
+      - /app/lando/scripts/env-config-import.sh
+  env-solr-reindex:
+    service: appserver
+    description: 'Reindexes Solr on a remote Pantheon env'
+    cmd:
+      - /app/lando/scripts/env-solr-reindex.sh
+  drupal-config-import:
+    service: appserver
+    description: 'Updates database, imports config and clears caches on your local Lando env'
+    cmd:
+      - /app/lando/scripts/config-import.sh
+  drupal-config-local:
+    service: appserver
+    description: 'Enables development modules on your local Lando env using config_split module'
+    cmd:
+      - /app/lando/scripts/config-local.sh
+  drupal-config-local-disable:
+    service: appserver
+    description: 'Disables development modules on your local Lando env using config_split module'
+    cmd:
+      - /app/lando/scripts/config-local-disable.sh
+  drupal-solr-reindex:
+    service: appserver
+    description: 'Reindexes Solr on your local Lando env'
+    cmd:
+      - /app/lando/scripts/solr-reindex.sh
+  assets-build:
+    service: node
+    description: 'Compiles SCSS to CSS and minifies JS in atdove theme'
+    cmd:
+      - 'cd /app/web/themes/custom/cowlitz_bootstrap && npm run build'
+  assets-watch:
+    service: node
+    description: 'Compiles and watches SCSS to CSS and minifies JS in atdove theme'
+    cmd:
+      - 'cd /app/web/themes/custom/cowlitz_bootstrap && npm run watch'
+  dev-config:
+    service: appserver
+    description: 'Enable/disable dev config split (usage - dev-config enable|disable)'
+    cmd: 'bash /app/lando/scripts/dev-config.sh'
+  config-check:
+    service: appserver
+    description: 'Check the configuration split (usage - config-check)'
+    cmd: 'bash /app/lando/scripts/config-safety-check.sh'
+  safe-export:
+    service: appserver
+    description: 'Export the configuration split (usage - safe-export)'
+    cmd:
+      - 'echo "🔍 Preparing safe config export..."'
+      - 'bash /app/lando/scripts/dev-config.sh disable'
+      - 'bash /app/lando/scripts/config-safety-check.sh'
+      - 'drush cex -y'
+      - 'echo "✅ Config exported safely"'
+  playwright:
+    service: node
+    description: 'Run Playwright tests (usage - playwright)'
+    user: root
+    cmd:
+      - 'cd /app/.ci/test/visual-regression && npx playwright install-deps && npx playwright install && npx playwright test'

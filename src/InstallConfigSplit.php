@@ -73,10 +73,8 @@ class InstallConfigSplit {
    *
    * @return bool True if successful, false if not.
    */
-  protected function modifyLandoFile() : bool {
-    // testing to see if I broke deploys on other projects -RA
-    return true;
-
+  protected function modifyLandoFile(): bool
+  {
     
     $filePath = rtrim($this->projectRoot, '/'). '/.lando.yml';
     $backupFile = $filePath . '.bak';
@@ -320,7 +318,17 @@ class InstallConfigSplit {
 
       // Post-process to remove quotes around Lando command strings
       // First fix multiline array formatting issues - convert split array items to single lines
-      $yamlOutput = preg_replace("/^(\s+)-\s*\n(\s+)([a-zA-Z0-9_-]+:\s*[^'\"\n]*)\s*$/m", '$1- $3', $yamlOutput);
+      // This handles the case where YAML dumps array items as:
+      //   -
+      //     service: command
+      // And converts it to:
+      //   - service: command
+
+      // Handle multiline array items with quoted content
+      $yamlOutput = preg_replace("/^(\s+)-\s*\n(\s+)([a-zA-Z0-9_-]+:\s*'[^']*')\s*$/m", '$1- $3', $yamlOutput);
+
+      // Handle multiline array items with unquoted content  
+      $yamlOutput = preg_replace("/^(\s+)-\s*\n(\s+)([a-zA-Z0-9_-]+:\s*[^'\"\n]+)\s*$/m", '$1- $3', $yamlOutput);
 
       // Remove quotes from any string that looks like "service: command" in array items
       // This handles both simple commands and commands with quotes inside
