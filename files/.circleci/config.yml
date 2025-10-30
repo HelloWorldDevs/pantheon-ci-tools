@@ -25,7 +25,6 @@ defaults: &defaults
     ADMIN_USERNAME: admin
 
 jobs:
-
   # Main build and deploy job
   build_and_deploy:
     <<: *defaults
@@ -97,7 +96,7 @@ jobs:
             # Source it into BASH_ENV for all steps
             echo 'source ./.circleci/env_vars.sh' >> $BASH_ENV
             source $BASH_ENV
-            
+
       # Verify required environment variables are set
       - run:
           name: Verify required theme variables are set
@@ -107,15 +106,15 @@ jobs:
               echo "Please set THEME_PATH in the CircleCI project settings or in .circleci/env_vars.sh"
               exit 1
             fi
-            
+
             if [ -z "${THEME_BUILD}" ]; then
               echo "ERROR: THEME_BUILD environment variable is not set!"
               echo "Please set THEME_BUILD in the CircleCI project settings or in .circleci/env_vars.sh"
               exit 1
             fi
-            
+
             echo "Required theme variables verified: THEME_PATH=${THEME_PATH}, THEME_COMMAND=${THEME_COMMAND}"
-            
+
       # Use npm ci instead of npm install if you want to install dependencies
       # according to the exact versions in package-lock.json
       - run:
@@ -154,7 +153,26 @@ jobs:
       - run:
           name: Deploying to Pantheon
           command: ./.ci/scripts/dev-multidev.sh
+      - run:
+          name: Import Drupal Configuration
           no_output_timeout: 40m
+          command: |
+            echo "Exporting configuration from live environment to private files..."
+            terminus drush "$TERMINUS_SITE.live" -- config:export --destination=/files/private/config-export -y
+
+            echo "Downloading exported configuration from live environment..."
+            terminus rsync "$TERMINUS_SITE.live":files/private/config-export/ ./config/sync/
+
+            echo "Uploading configuration to multidev environment..."
+            terminus rsync ./config/sync/ "$TERMINUS_SITE.$TERMINUS_ENV":files/config-sync/
+
+            echo "Importing configuration into multidev environment..."
+            terminus drush "$TERMINUS_SITE.$TERMINUS_ENV" -- config:import -y
+
+            echo "Clearing caches..."
+            terminus drush "$TERMINUS_SITE.$TERMINUS_ENV" -- cache:rebuild
+
+            echo "Configuration sync completed successfully"
       - run:
           name: Post Multidev URL to GitHub PR
           command: ./.ci/scripts/post_multidev_url.sh
@@ -261,7 +279,6 @@ jobs:
             echo "Running Playwright tests..."
             chmod +x ./run-playwright
             ./run-playwright
-
 
       # [artifacts] Store screenshots with visual comparison reports
       - store_artifacts:
