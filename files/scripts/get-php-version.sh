@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -euo pipefail
+
 # Read PHP version from composer.json and select the corresponding Docker image tag.
 # Defaults to 8.1 if not specified.
 PHP_VERSION=$(jq -r '.require.php' composer.json | grep -oE '[0-9]+\.[0-9]+' | head -n 1)
