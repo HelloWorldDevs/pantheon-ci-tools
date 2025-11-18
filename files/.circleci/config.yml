@@ -1,10 +1,5 @@
 version: 2.1
 
-parameters:
-  php-image-tag:
-    type: string
-    default: "8.x-php8.1"
-
 orbs:
   jira: circleci/jira@2.2.0
   gh: circleci/github-cli@2.7.0
@@ -13,7 +8,7 @@ orbs:
 executors:
   pantheon:
     docker:
-      - image: quay.io/pantheon-public/build-tools-ci:<< pipeline.parameters.php-image-tag >>
+      - image: quay.io/pantheon-public/build-tools-ci:8.x-php8.3
     working_directory: ~/project
 
   playwright:
