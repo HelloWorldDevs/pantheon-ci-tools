@@ -8,7 +8,7 @@ orbs:
 executors:
   pantheon:
     docker:
-      - image: quay.io/pantheon-public/build-tools-ci:8.x-php8.1
+      - image: quay.io/pantheon-public/build-tools-ci:8.x-php8.3
     working_directory: ~/project
 
   playwright:
@@ -25,7 +25,6 @@ defaults: &defaults
     ADMIN_USERNAME: admin
 
 jobs:
-
   # Main build and deploy job
   build_and_deploy:
     <<: *defaults
@@ -97,7 +96,7 @@ jobs:
             # Source it into BASH_ENV for all steps
             echo 'source ./.circleci/env_vars.sh' >> $BASH_ENV
             source $BASH_ENV
-            
+
       # Verify required environment variables are set
       - run:
           name: Verify required theme variables are set
@@ -107,15 +106,15 @@ jobs:
               echo "Please set THEME_PATH in the CircleCI project settings or in .circleci/env_vars.sh"
               exit 1
             fi
-            
+
             if [ -z "${THEME_BUILD}" ]; then
               echo "ERROR: THEME_BUILD environment variable is not set!"
               echo "Please set THEME_BUILD in the CircleCI project settings or in .circleci/env_vars.sh"
               exit 1
             fi
-            
+
             echo "Required theme variables verified: THEME_PATH=${THEME_PATH}, THEME_COMMAND=${THEME_COMMAND}"
-            
+
       # Use npm ci instead of npm install if you want to install dependencies
       # according to the exact versions in package-lock.json
       - run:
@@ -261,7 +260,6 @@ jobs:
             echo "Running Playwright tests..."
             chmod +x ./run-playwright
             ./run-playwright
-
 
       # [artifacts] Store screenshots with visual comparison reports
       - store_artifacts:
