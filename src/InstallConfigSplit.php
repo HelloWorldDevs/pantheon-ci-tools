@@ -34,6 +34,11 @@ class InstallConfigSplit {
    */
   private $scriptDir = __DIR__ . '/../files/scripts/config_split';
 
+  /**
+   * @var string
+   */
+  private $templatesDir = __DIR__ . '/../files/templates';
+
   private $landoScripts = [
     'config-safety-check.sh',
     'dev-config.sh'
@@ -61,6 +66,11 @@ class InstallConfigSplit {
       $this->io->writeError('  - Error: could not install Lando scripts; aborting config split installation.');
       return;
     }
+    
+    if (!$this->installDevelopmentServices()) {
+      $this->io->writeError('  - Error: could not install development.services.yml; continuing anyway.');
+    }
+    
     if (!$this->modifyLandoFile()) {
       $this->io->writeError('  - Error: could not modify .lando.yml; aborting config split installation.');
       return;
@@ -226,6 +236,84 @@ class InstallConfigSplit {
 
     $this->io->write('  - All Lando scripts have been copied successfully!');
 
+    return true;
+  }
+
+  /**
+   * Detect Drupal major version from composer.json.
+   *
+   * @return int Drupal major version (10, 11, etc.) or 10 as default
+   */
+  protected function detectDrupalVersion(): int {
+    $composerFile = rtrim($this->projectRoot, '/') . '/composer.json';
+    
+    if (!file_exists($composerFile)) {
+      $this->io->write('  - Warning: composer.json not found, assuming Drupal 10');
+      return 10;
+    }
+    
+    $composerJson = json_decode(file_get_contents($composerFile), true);
+    
+    // Check for drupal/core or drupal/core-recommended
+    $version = null;
+    if (isset($composerJson['require']['drupal/core'])) {
+      $version = $composerJson['require']['drupal/core'];
+    } elseif (isset($composerJson['require']['drupal/core-recommended'])) {
+      $version = $composerJson['require']['drupal/core-recommended'];
+    }
+    
+    if ($version && preg_match('/(\d+)/', $version, $matches)) {
+      return (int) $matches[1];
+    }
+    
+    $this->io->write('  - Warning: Could not detect Drupal version, assuming Drupal 10');
+    return 10;
+  }
+
+  /**
+   * Install version-appropriate development.services.yml file.
+   *
+   * @return bool True if successful, false if not
+   */
+  protected function installDevelopmentServices(): bool {
+    $drupalVersion = $this->detectDrupalVersion();
+    $this->io->write(sprintf('  - Detected Drupal %d', $drupalVersion));
+    
+    // Determine webroot
+    $webroot = 'web';
+    if (is_dir($this->projectRoot . '/html/sites/default')) {
+      $webroot = 'html';
+    } elseif (is_dir($this->projectRoot . '/web/sites/default')) {
+      $webroot = 'web';
+    } else {
+      $this->io->write('  - Warning: Could not find Drupal sites directory, skipping development.services.yml');
+      return false;
+    }
+    
+    $destPath = rtrim($this->projectRoot, '/') . '/' . $webroot . '/sites/development.services.yml';
+    
+    // Choose template based on Drupal version
+    $templateFile = $drupalVersion >= 11 ? 'development.services.d11.yml' : 'development.services.d10.yml';
+    $sourcePath = $this->templatesDir . '/' . $templateFile;
+    
+    if (!file_exists($sourcePath)) {
+      $this->io->writeError(sprintf('  - Error: Template file not found: %s', $templateFile));
+      return false;
+    }
+    
+    $exists = file_exists($destPath);
+    
+    if (!copy($sourcePath, $destPath)) {
+      $this->io->writeError(sprintf('  - Error: Failed to copy %s', $templateFile));
+      return false;
+    }
+    
+    if ($exists) {
+      $this->io->write(sprintf('  - Updated: development.services.yml (Drupal %d)', $drupalVersion));
+    } else {
+      $this->io->write(sprintf('  - Installed: development.services.yml (Drupal %d)', $drupalVersion));
+    }
+    
     return true;
   }
   
