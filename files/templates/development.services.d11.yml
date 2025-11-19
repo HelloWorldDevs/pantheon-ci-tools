@@ -1,7 +1,10 @@
 # Local development services.
 #
-# Note: cache.backend.null was removed in Drupal 11.
-# Caching is disabled via settings.local.php instead.
+# Note: In Drupal 11, cache backends should not be defined in services files.
+# Use settings.local.php to disable caching instead.
+#
+# Do not add cache.backend.null or cache.backend.memory here - they have
+# been removed or require proper arguments in Drupal 11.
 parameters:
   http.response.debug_cacheability_headers: true
   twig.config:
