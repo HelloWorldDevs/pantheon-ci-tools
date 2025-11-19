@@ -206,10 +206,8 @@ class InstallConfigSplit {
 
     foreach ($this->landoScripts as $script) {
       $tarPath = $landoScriptsDir . '/' . $script;
-      if (file_exists($tarPath)) {
-        $this->io->write(sprintf('  - Lando script %s already exists; skipping.', $script));
-        continue;
-      }
+      $exists = file_exists($tarPath);
+      
       if (!copy($this->scriptDir . '/' . $script, $tarPath)) {
         $this->io->writeError(sprintf('  - Error: failed to copy %s to %s', $script, $tarPath));
         return false;
@@ -218,7 +216,12 @@ class InstallConfigSplit {
         $this->io->writeError(sprintf('  - Error: failed to make executable: %s', $script));
         return false;
       }
-      $this->io->write(sprintf('  - Copied and made executable: %s', $script));
+      
+      if ($exists) {
+        $this->io->write(sprintf('  - Updated: %s', $script));
+      } else {
+        $this->io->write(sprintf('  - Installed: %s', $script));
+      }
     }
 
     $this->io->write('  - All Lando scripts have been copied successfully!');

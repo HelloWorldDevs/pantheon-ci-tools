@@ -36,6 +36,31 @@ else
     exit 1
 fi
 
+# Detect Drupal version from composer.json
+detect_drupal_version() {
+    if [[ -f "/app/composer.json" ]]; then
+        local version=$(php -r "
+            \$json = json_decode(file_get_contents('/app/composer.json'), true);
+            if (isset(\$json['require']['drupal/core'])) {
+                echo \$json['require']['drupal/core'];
+            } elseif (isset(\$json['require']['drupal/core-recommended'])) {
+                echo \$json['require']['drupal/core-recommended'];
+            }
+        ")
+        
+        # Extract major version number (e.g., "^10.2" or "~11.0" -> "10" or "11")
+        if [[ $version =~ ([0-9]+) ]]; then
+            echo "${BASH_REMATCH[1]}"
+        else
+            echo "10"  # Default to 10 if can't detect
+        fi
+    else
+        echo "10"  # Default to 10 if no composer.json
+    fi
+}
+
+DRUPAL_VERSION=$(detect_drupal_version)
+
 wait_for_database() {
     echo -e "${YELLOW}⏳ Waiting for database to be ready...${NORMAL}"
     local max_attempts=30
@@ -92,7 +117,9 @@ case "$ACTION" in
                 cp ${WEBROOT}/sites/default/default.settings.local.php ${WEBROOT}/sites/default/settings.local.php
             else
                 # Create a minimal settings.local.php if default doesn't exist
-                cat > ${WEBROOT}/sites/default/settings.local.php << 'EOF'
+                echo -e "${YELLOW}Creating settings.local.php for Drupal ${DRUPAL_VERSION}...${NORMAL}"
+                
+                cat > ${WEBROOT}/sites/default/settings.local.php << 'EOFSTART'
 <?php
 
 /**
@@ -106,6 +133,11 @@ case "$ACTION" in
 $config['system.performance']['css']['preprocess'] = FALSE;
 $config['system.performance']['js']['preprocess'] = FALSE;
 
+EOFSTART
+
+                # Only add cache.backend.null settings for Drupal 10 and below
+                if [[ $DRUPAL_VERSION -lt 11 ]]; then
+                    cat >> ${WEBROOT}/sites/default/settings.local.php << 'EOFCACHE'
 // Disable the render cache.
 $settings['cache']['bins']['render'] = 'cache.backend.null';
 
@@ -118,6 +150,10 @@ $settings['cache']['bins']['page'] = 'cache.backend.null';
 // Disable Dynamic Page Cache.
 $settings['cache']['bins']['dynamic_page_cache'] = 'cache.backend.null';
 
+EOFCACHE
+                fi
+
+                cat >> ${WEBROOT}/sites/default/settings.local.php << 'EOFEND'
 // Allow test modules and themes to be installed.
 $settings['extension_discovery_scan_tests'] = TRUE;
 
@@ -126,9 +162,33 @@ $settings['rebuild_access'] = TRUE;
 
 // Skip file system permissions hardening.
 $settings['skip_permissions_hardening'] = TRUE;
-EOF
-                echo -e "${GREEN}✅ Created new settings.local.php${NORMAL}"
+EOFEND
+                echo -e "${GREEN}✅ Created new settings.local.php (Drupal ${DRUPAL_VERSION})${NORMAL}"
             fi
+        fi
+
+        # Remove cache.backend.null settings for Drupal 11+
+        if [[ $DRUPAL_VERSION -ge 11 ]]; then
+            echo -e "${YELLOW}Removing deprecated cache.backend.null settings for Drupal ${DRUPAL_VERSION}...${NORMAL}"
+            php -r "
+            \$file = '${WEBROOT}/sites/default/settings.local.php';
+            if (file_exists(\$file)) {
+                \$content = file_get_contents(\$file);
+                
+                // Remove the cache.backend.null lines
+                \$content = preg_replace('/\/\/ Disable the render cache\.\s*\n\s*\\\$settings\[.cache.\]\[.bins.\]\[.render.\]\s*=\s*.cache\.backend\.null.;\s*\n/', '', \$content);
+                \$content = preg_replace('/\/\/ Disable Internal Page Cache\.\s*\n\s*\\\$settings\[.cache.\]\[.bins.\]\[.page.\]\s*=\s*.cache\.backend\.null.;\s*\n/', '', \$content);
+                \$content = preg_replace('/\/\/ Disable Dynamic Page Cache\.\s*\n\s*\\\$settings\[.cache.\]\[.bins.\]\[.dynamic_page_cache.\]\s*=\s*.cache\.backend\.null.;\s*\n/', '', \$content);
+                
+                // Also remove any standalone lines without comments
+                \$content = preg_replace('/\\\$settings\[.cache.\]\[.bins.\]\[.render.\]\s*=\s*.cache\.backend\.null.;\s*\n/', '', \$content);
+                \$content = preg_replace('/\\\$settings\[.cache.\]\[.bins.\]\[.page.\]\s*=\s*.cache\.backend\.null.;\s*\n/', '', \$content);
+                \$content = preg_replace('/\\\$settings\[.cache.\]\[.bins.\]\[.dynamic_page_cache.\]\s*=\s*.cache\.backend\.null.;\s*\n/', '', \$content);
+                
+                file_put_contents(\$file, \$content);
+                echo 'Removed deprecated cache settings';
+            }
+            "
         fi
 
         # Use PHP to safely modify the settings file
