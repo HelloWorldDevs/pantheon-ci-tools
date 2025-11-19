@@ -349,16 +349,22 @@ class InstallConfigSplit {
 
   /**
    * Merge two indexed arrays preserving order & uniqueness.
+   * Also deduplicates the existing array.
    */
   private static function mergeUnique(array $existing, array $additions): array {
-    $result = $existing;
+    $result = [];
     $signatures = [];
 
-    // Build signature list from existing.
+    // First, deduplicate the existing array
     foreach ($existing as $item) {
-      $signatures[] = self::eventSignature($item);
+      $sig = self::eventSignature($item);
+      if (!in_array($sig, $signatures, true)) {
+        $result[] = $item;
+        $signatures[] = $sig;
+      }
     }
 
+    // Then add new items if they don't already exist
     foreach ($additions as $item) {
       $sig = self::eventSignature($item);
       if (!in_array($sig, $signatures, true)) {
