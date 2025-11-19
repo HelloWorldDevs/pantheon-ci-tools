@@ -136,8 +136,8 @@ class InstallConfigSplit {
    */
   protected static function postPullEvents() : array {
     return [
-      'appserver: bash /app/lando/scripts/dev-config.sh disable',
-      'appserver: drush cr'
+      ['appserver' => 'bash /app/lando/scripts/dev-config.sh disable'],
+      ['appserver' => 'drush cr']
     ];
   }
 
@@ -149,8 +149,8 @@ class InstallConfigSplit {
    */
   protected static function postStartEvents() : array {
     return [
-      'appserver: echo "🔧 Setting up dev environment..."',
-      'appserver: bash /app/lando/scripts/dev-config.sh enable'
+      ['appserver' => 'echo "🔧 Setting up dev environment..."'],
+      ['appserver' => 'bash /app/lando/scripts/dev-config.sh enable']
     ];
   }
 

@@ -65,6 +65,7 @@ use Composer\IO\ConsoleIO;
 use Symfony\Component\Console\Helper\HelperSet;
 use Symfony\Component\Console\Input\ArgvInput;
 use Symfony\Component\Console\Output\ConsoleOutput;
+use Symfony\Component\Yaml\Yaml;
 
 try {
     // Create a mock Composer IO
@@ -135,11 +136,37 @@ if (file_exists('.lando.yml')) {
     $foundPostPullEvent = strpos($modifiedLando, 'bash /app/lando/scripts/dev-config.sh disable') !== false;
 
     // Check for duplicates (should NOT exist after running twice)
+    // Parse YAML to check events sections specifically
+    $parsedYaml = Yaml::parse($modifiedLando);
+
     $devConfigCount = substr_count($modifiedLando, 'dev-config:');
     $configCheckCount = substr_count($modifiedLando, 'config-check:');
     $safeExportCount = substr_count($modifiedLando, 'safe-export:');
-    $postStartEnableCount = substr_count($modifiedLando, 'bash /app/lando/scripts/dev-config.sh enable');
-    $postPullDisableCount = substr_count($modifiedLando, 'bash /app/lando/scripts/dev-config.sh disable');
+
+    // Count only in events sections (not in tooling where it's expected)
+    $postStartEnableCount = 0;
+    if (isset($parsedYaml['events']['post-start'])) {
+        foreach ($parsedYaml['events']['post-start'] as $event) {
+            if (
+                is_array($event) && isset($event['appserver']) &&
+                strpos($event['appserver'], 'dev-config.sh enable') !== false
+            ) {
+                $postStartEnableCount++;
+            }
+        }
+    }
+
+    $postPullDisableCount = 0;
+    if (isset($parsedYaml['events']['post-pull'])) {
+        foreach ($parsedYaml['events']['post-pull'] as $event) {
+            if (
+                is_array($event) && isset($event['appserver']) &&
+                strpos($event['appserver'], 'dev-config.sh disable') !== false
+            ) {
+                $postPullDisableCount++;
+            }
+        }
+    }
 
     echo "✅ Tooling commands added:\n";
     echo "  - dev-config: " . ($foundDevConfig ? "✅" : "❌") . "\n";

@@ -20,10 +20,16 @@ if [[ -z "${LANDO_INFO}" ]]; then
     exit 1
 fi
 
-# Detect webroot directory (html or web)
-if [[ -d "/app/web" ]]; then
+# Detect webroot directory (html or web) by checking which contains Drupal
+if [[ -d "/app/web/sites/default" ]]; then
+    WEBROOT="/app/web"
+elif [[ -d "/app/html/sites/default" ]]; then
+    WEBROOT="/app/html"
+elif [[ -d "/app/web" ]]; then
+    # Fallback to web if directory exists (even without sites/default yet)
     WEBROOT="/app/web"
 elif [[ -d "/app/html" ]]; then
+    # Fallback to html if directory exists (even without sites/default yet)
     WEBROOT="/app/html"
 else
     echo -e "${RED}ERROR: Could not find webroot directory (tried /app/web and /app/html).${NORMAL}"
@@ -82,7 +88,47 @@ case "$ACTION" in
 
         # Ensure settings.local.php exists
         if [[ ! -f "${WEBROOT}/sites/default/settings.local.php" ]]; then
-            cp ${WEBROOT}/sites/default/default.settings.local.php ${WEBROOT}/sites/default/settings.local.php
+            if [[ -f "${WEBROOT}/sites/default/default.settings.local.php" ]]; then
+                cp ${WEBROOT}/sites/default/default.settings.local.php ${WEBROOT}/sites/default/settings.local.php
+            else
+                # Create a minimal settings.local.php if default doesn't exist
+                cat > ${WEBROOT}/sites/default/settings.local.php << 'EOF'
+<?php
+
+/**
+ * @file
+ * Local development override configuration.
+ *
+ * To activate this feature, copy this file to settings.local.php
+ */
+
+// Disable CSS and JS aggregation.
+$config['system.performance']['css']['preprocess'] = FALSE;
+$config['system.performance']['js']['preprocess'] = FALSE;
+
+// Disable the render cache.
+$settings['cache']['bins']['render'] = 'cache.backend.null';
+
+// Disable caching for migrations.
+$settings['cache']['bins']['discovery_migration'] = 'cache.backend.memory';
+
+// Disable Internal Page Cache.
+$settings['cache']['bins']['page'] = 'cache.backend.null';
+
+// Disable Dynamic Page Cache.
+$settings['cache']['bins']['dynamic_page_cache'] = 'cache.backend.null';
+
+// Allow test modules and themes to be installed.
+$settings['extension_discovery_scan_tests'] = TRUE;
+
+// Enable access to rebuild.php.
+$settings['rebuild_access'] = TRUE;
+
+// Skip file system permissions hardening.
+$settings['skip_permissions_hardening'] = TRUE;
+EOF
+                echo -e "${GREEN}✅ Created new settings.local.php${NORMAL}"
+            fi
         fi
 
         # Use PHP to safely modify the settings file

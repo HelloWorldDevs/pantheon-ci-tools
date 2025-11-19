@@ -13,10 +13,16 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# Detect webroot directory (html or web)
-if [[ -d "web" ]]; then
+# Detect webroot directory (html or web) by checking which contains Drupal
+if [[ -d "web/sites/default" ]]; then
+    WEBROOT="web"
+elif [[ -d "html/sites/default" ]]; then
+    WEBROOT="html"
+elif [[ -d "web" ]]; then
+    # Fallback to web if directory exists (even without sites/default yet)
     WEBROOT="web"
 elif [[ -d "html" ]]; then
+    # Fallback to html if directory exists (even without sites/default yet)
     WEBROOT="html"
 else
     echo -e "${RED}ERROR: Could not find webroot directory (tried web and html).${NC}"
