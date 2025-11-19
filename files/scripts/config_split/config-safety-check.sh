@@ -13,9 +13,20 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+# Detect webroot directory (html or web)
+if [[ -d "web" ]]; then
+    WEBROOT="web"
+elif [[ -d "html" ]]; then
+    WEBROOT="html"
+else
+    echo -e "${RED}ERROR: Could not find webroot directory (tried web and html).${NC}"
+    exit 1
+fi
+
 echo -e "${YELLOW}Pre-Deployment Config Safety Check${NC}"
 echo "==================================="
 echo "Working directory: $(pwd)"
+echo "Webroot: ${WEBROOT}"
 echo ""
 
 ERRORS=0
@@ -59,12 +70,12 @@ fi
 # Check 4: Config sync directory is correct
 echo "4. Checking config sync directory setting..."
 # Check the actual Drupal config sync directory using drush
-if cd html && lando drush status --field=config-sync 2>/dev/null | grep -q "../config/sync"; then
+if cd ${WEBROOT} && lando drush status --field=config-sync 2>/dev/null | grep -q "../config/sync"; then
     echo -e "${GREEN}✓ Config sync directory correctly set${NC}"
 else
     echo -e "${RED}✗ ERROR: Config sync directory not properly configured${NC}"
     echo "  Expected: ../config/sync"
-    echo "  Current: $(cd html && lando drush status --field=config-sync 2>/dev/null || echo 'Unable to determine')"
+    echo "  Current: $(cd ${WEBROOT} && lando drush status --field=config-sync 2>/dev/null || echo 'Unable to determine')"
     ERRORS=$((ERRORS + 1))
 fi
 

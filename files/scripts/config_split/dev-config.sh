@@ -20,6 +20,16 @@ if [[ -z "${LANDO_INFO}" ]]; then
     exit 1
 fi
 
+# Detect webroot directory (html or web)
+if [[ -d "/app/web" ]]; then
+    WEBROOT="/app/web"
+elif [[ -d "/app/html" ]]; then
+    WEBROOT="/app/html"
+else
+    echo -e "${RED}ERROR: Could not find webroot directory (tried /app/web and /app/html).${NORMAL}"
+    exit 1
+fi
+
 wait_for_database() {
     echo -e "${YELLOW}⏳ Waiting for database to be ready...${NORMAL}"
     local max_attempts=30
@@ -71,13 +81,13 @@ case "$ACTION" in
         echo -e "${YELLOW}Configuring dev split in settings.local.php...${NORMAL}"
 
         # Ensure settings.local.php exists
-        if [[ ! -f "/app/html/sites/default/settings.local.php" ]]; then
-            cp /app/html/sites/default/default.settings.local.php /app/html/sites/default/settings.local.php
+        if [[ ! -f "${WEBROOT}/sites/default/settings.local.php" ]]; then
+            cp ${WEBROOT}/sites/default/default.settings.local.php ${WEBROOT}/sites/default/settings.local.php
         fi
 
         # Use PHP to safely modify the settings file
         php -r "
-        \$file = '/app/html/sites/default/settings.local.php';
+        \$file = '${WEBROOT}/sites/default/settings.local.php';
         \$content = file_get_contents(\$file);
 
         // Add config split overrides if they don't exist
@@ -108,9 +118,9 @@ case "$ACTION" in
         echo -e "${YELLOW}🔧 Disabling dev config split...${NORMAL}"
 
         # Remove from settings.local.php
-        if [[ -f "/app/html/sites/default/settings.local.php" ]]; then
+        if [[ -f "${WEBROOT}/sites/default/settings.local.php" ]]; then
             php -r "
-            \$file = '/app/html/sites/default/settings.local.php';
+            \$file = '${WEBROOT}/sites/default/settings.local.php';
             \$content = file_get_contents(\$file);
             \$content = preg_replace('/\\\$config\[.config_split\.config_split\.dev.\]\[.status.\] = TRUE;/', '\$config[\"config_split.config_split.dev\"][\"status\"] = FALSE;', \$content);
             file_put_contents(\$file, \$content);

@@ -75,9 +75,6 @@ class InstallConfigSplit {
    */
   protected function modifyLandoFile(): bool
   {
-    // TEMP disable for now
-    return true;
-
     $filePath = rtrim($this->projectRoot, '/'). '/.lando.yml';
     $backupFile = $filePath . '.bak';
 
@@ -332,9 +329,11 @@ class InstallConfigSplit {
       // Handle multiline array items with unquoted content  
       $yamlOutput = preg_replace("/^(\s+)-\s*\n(\s+)([a-zA-Z0-9_-]+:\s*[^'\"\n]+)\s*$/m", '$1- $3', $yamlOutput);
 
-      // Remove quotes from any string that looks like "service: command" in array items
-      // This handles both simple commands and commands with quotes inside
-      $yamlOutput = preg_replace("/^(\s+- )['\"]([a-zA-Z0-9_-]+:\s*.*?)['\"]$/m", '$1$2', $yamlOutput);
+      // Remove single quotes from event strings like 'appserver: command'
+      $yamlOutput = preg_replace("/^(\s+- )'([a-zA-Z0-9_-]+:\s*[^']+)'$/m", '$1$2', $yamlOutput);
+      
+      // Remove double quotes from event strings like "appserver: command"
+      $yamlOutput = preg_replace('/^(\s+- )"([a-zA-Z0-9_-]+:\s*[^"]+)"$/m', '$1$2', $yamlOutput);
 
       // Handle cmd values that are quoted
       $yamlOutput = preg_replace("/^(\s+cmd:\s*)['\"]([a-zA-Z0-9_-]+:\s*.*?)['\"]$/m", '$1$2', $yamlOutput);
