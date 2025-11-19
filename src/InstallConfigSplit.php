@@ -330,10 +330,12 @@ class InstallConfigSplit {
       $yamlOutput = preg_replace("/^(\s+)-\s*\n(\s+)([a-zA-Z0-9_-]+:\s*[^'\"\n]+)\s*$/m", '$1- $3', $yamlOutput);
 
       // Remove single quotes from event strings like 'appserver: command'
-      $yamlOutput = preg_replace("/^(\s+- )'([a-zA-Z0-9_-]+:\s*[^']+)'$/m", '$1$2', $yamlOutput);
+      // Using a greedy match that handles any content including nested quotes
+      $yamlOutput = preg_replace("/^(\s+- )'([a-zA-Z0-9_-]+:\s*.+)'$/m", '$1$2', $yamlOutput);
       
       // Remove double quotes from event strings like "appserver: command"
-      $yamlOutput = preg_replace('/^(\s+- )"([a-zA-Z0-9_-]+:\s*[^"]+)"$/m', '$1$2', $yamlOutput);
+      // Using a greedy match that handles any content including nested quotes
+      $yamlOutput = preg_replace('/^(\s+- )"([a-zA-Z0-9_-]+:\s*.+)"$/m', '$1$2', $yamlOutput);
 
       // Handle cmd values that are quoted
       $yamlOutput = preg_replace("/^(\s+cmd:\s*)['\"]([a-zA-Z0-9_-]+:\s*.*?)['\"]$/m", '$1$2', $yamlOutput);
@@ -378,6 +380,10 @@ class InstallConfigSplit {
       ksort($item);
       return 'A:'.json_encode($item, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     }
-    return 'S:'.(string)$item;
+    // Normalize strings by removing quotes and trimming whitespace
+    $normalized = trim((string)$item);
+    // Remove leading/trailing quotes (both single and double)
+    $normalized = preg_replace('/^["\']|["\']$/', '', $normalized);
+    return 'S:'.$normalized;
   }
 }
