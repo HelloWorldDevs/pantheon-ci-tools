@@ -290,7 +290,14 @@ class InstallConfigSplit {
       return false;
     }
     
-    $destPath = rtrim($this->projectRoot, '/') . '/' . $webroot . '/sites/development.services.yml';
+    $sitesDir = rtrim($this->projectRoot, '/') . '/' . $webroot . '/sites';
+    
+    // For Drupal 11, clean up any existing services files with problematic cache definitions
+    if ($drupalVersion >= 11) {
+      $this->cleanupDrupal11CacheServices($sitesDir);
+    }
+    
+    $destPath = $sitesDir . '/development.services.yml';
     
     // Choose template based on Drupal version
     $templateFile = $drupalVersion >= 11 ? 'development.services.d11.yml' : 'development.services.d10.yml';
@@ -315,6 +322,50 @@ class InstallConfigSplit {
     }
     
     return true;
+  }
+
+  /**
+   * Clean up Drupal 11 incompatible cache backend service definitions.
+   *
+   * @param string $sitesDir The sites directory path
+   */
+  protected function cleanupDrupal11CacheServices(string $sitesDir): void {
+    // Find all development.services*.yml files
+    $pattern = $sitesDir . '/development.services*.yml';
+    $files = glob($pattern);
+    
+    foreach ($files as $file) {
+      $content = file_get_contents($file);
+      $originalContent = $content;
+      
+      // Remove problematic cache.backend service definitions
+      // Match cache.backend.null, cache.backend.memory, etc.
+      $patterns = [
+        // Remove entire cache.backend.null service definition
+        '/^\s*cache\.backend\.null:\s*\n\s*class:\s*[^\n]+\s*\n\s*(cache:\s*[^\n]+\s*\n)?/m',
+        // Remove entire cache.backend.memory service definition  
+        '/^\s*cache\.backend\.memory:\s*\n\s*class:\s*[^\n]+\s*\n\s*(cache:\s*[^\n]+\s*\n)?/m',
+        // Remove inline cache.backend definitions
+        '/^\s*cache\.backend\.(null|memory):\s*\{[^}]*\}\s*\n/m',
+        // Remove comment lines mentioning cache.backend
+        '/^\s*#.*cache\.backend\.(null|memory).*\n/m',
+      ];
+      
+      foreach ($patterns as $pattern) {
+        $content = preg_replace($pattern, '', $content);
+      }
+      
+      // Clean up empty services sections if they only contained cache backends
+      $content = preg_replace('/services:\s*\n\s*\n/', '', $content);
+      $content = preg_replace('/services:\s*\n\s*$/m', '', $content);
+      
+      // Only write if content changed
+      if ($content !== $originalContent) {
+        file_put_contents($file, $content);
+        $basename = basename($file);
+        $this->io->write(sprintf('  - Cleaned up incompatible cache services in: %s', $basename));
+      }
+    }
   }
   
   /**
