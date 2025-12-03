@@ -1,0 +1,193 @@
+name: PR Multidev
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  build-multidev:
+    name: Build Pantheon Multidev
+		runs-on: ubuntu-latest
+
+		steps:
+			- name: Checkout repository
+				uses: actions/checkout@v4
+
+			- name: Set up PHP
+				uses: shivammathur/setup-php@v2
+				with:
+					php-version: '8.1'
+
+			- name: Install Terminus
+				run: |
+					curl -L https://github.com/pantheon-systems/terminus/releases/latest/download/terminus.phar -o terminus
+					chmod +x terminus
+					sudo mv terminus /usr/local/bin/terminus
+
+			- name: Set Multidev environment variables
+				id: env_vars
+				run: |
+					pr_number="${{ github.event.pull_request.number }}"
+					branch_name="${{ github.event.pull_request.head.ref }}"
+
+					echo "PR_NUMBER=$pr_number" >> "$GITHUB_ENV"
+					echo "CI_BRANCH=$branch_name" >> "$GITHUB_ENV"
+
+					# Default branch from repo settings
+					default_branch="${{ github.event.repository.default_branch }}"
+					echo "DEFAULT_BRANCH=$default_branch" >> "$GITHUB_ENV"
+
+			- name: Run Multidev build script
+				env:
+					TERMINUS_TOKEN: ${{ secrets.TERMINUS_TOKEN }}
+					TERMINUS_SITE: ${{ secrets.TERMINUS_SITE }}
+					CI_BRANCH: ${{ env.CI_BRANCH }}
+					DEFAULT_BRANCH: ${{ env.DEFAULT_BRANCH }}
+					JIRA_TICKET_ID: ${{ github.event.pull_request.title }}
+					PR_NUMBER: ${{ env.PR_NUMBER }}
+					GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+				run: |
+					chmod +x files/scripts/dev-multidev.sh
+					./files/scripts/dev-multidev.sh
+
+			- name: Determine Multidev URL
+				id: multidev_url
+				env:
+					TERMINUS_SITE: ${{ secrets.TERMINUS_SITE }}
+				run: |
+					# Derive env name the same way as dev-multidev.sh
+					pr_number="${{ env.PR_NUMBER }}"
+					jira_title="${{ github.event.pull_request.title }}"
+
+					terminus_env=""
+					if echo "$jira_title" | grep -Eq '[A-Z]+-[0-9]+'; then
+						issue_key="$(echo "$jira_title" | grep -Eo '[A-Z]+-[0-9]+' | head -n1)"
+						terminus_env="$(echo "$issue_key" | tr '[:upper:]' '[:lower:]' | cut -c -11)"
+					elif [ -n "$pr_number" ] && [ "$pr_number" != "0" ]; then
+						terminus_env="pr-$pr_number"
+						terminus_env="$(echo "$terminus_env" | tr '[:upper:]' '[:lower:]' | cut -c -11)"
+					else
+						echo "Unable to determine Multidev env name" >&2
+						exit 1
+					fi
+
+					echo "Using Multidev env: $terminus_env"
+
+					# Construct the standard Pantheon Multidev URL
+					multidev_url="https://$terminus_env-$TERMINUS_SITE.pantheonsite.io/"
+					echo "MULTIDEV_URL=$multidev_url" >> "$GITHUB_OUTPUT"
+
+			- name: Comment Multidev URL on PR
+				uses: actions/github-script@v6
+				env:
+					MULTIDEV_URL: ${{ steps.multidev_url.outputs.MULTIDEV_URL }}
+				with:
+					script: |
+						const prNumber = context.payload.pull_request.number;
+						const url = process.env.MULTIDEV_URL;
+						if (!url) {
+							core.setFailed('MULTIDEV_URL not set');
+						}
+						await github.rest.issues.createComment({
+							...context.repo,
+							issue_number: prNumber,
+							body: `Pantheon Multidev environment is ready: ${url}`,
+						});
+
+			- name: Post Multidev URL to Jira
+				if: ${{ steps.multidev_url.outputs.MULTIDEV_URL != '' }}
+				uses: actions/github-script@v6
+				env:
+					JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+					JIRA_USER: ${{ secrets.JIRA_USER }}
+					JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+					MULTIDEV_URL: ${{ steps.multidev_url.outputs.MULTIDEV_URL }}
+				with:
+					script: |
+						const { JIRA_BASE_URL, JIRA_USER, JIRA_TOKEN, MULTIDEV_URL } = process.env;
+
+						const title = context.payload.pull_request.title || '';
+						const body = context.payload.pull_request.body || '';
+						const branch = context.payload.pull_request.head.ref || '';
+						const prUrl = context.payload.pull_request.html_url;
+
+						const jiraKeyRegex = /[A-Z]+-[0-9]+/;
+						let issueKey = null;
+
+						for (const source of [title, body, branch]) {
+							const match = source.match(jiraKeyRegex);
+							if (match) {
+								issueKey = match[0];
+								break;
+							}
+						}
+
+						if (!issueKey) {
+							console.log('No Jira issue key found in PR title/body/branch; skipping Jira comment.');
+							return;
+						}
+
+						if (!JIRA_BASE_URL || !JIRA_USER || !JIRA_TOKEN) {
+							console.log('Missing Jira configuration; skipping Jira comment.');
+							return;
+						}
+
+						const auth = Buffer.from(`${JIRA_USER}:${JIRA_TOKEN}`).toString('base64');
+						const url = `${JIRA_BASE_URL}/rest/api/3/issue/${issueKey}/comment`;
+
+						const commentPayload = {
+							body: {
+								type: 'doc',
+								version: 1,
+								content: [
+									{
+										type: 'paragraph',
+										content: [
+											{ type: 'text', text: 'Pantheon Multidev environment is ready: ' },
+											{
+												type: 'text',
+												text: MULTIDEV_URL,
+												marks: [
+													{ type: 'link', attrs: { href: MULTIDEV_URL } },
+												],
+											},
+										],
+									},
+									{
+										type: 'paragraph',
+										content: [
+											{
+												type: 'text',
+												text: 'Related PR: ',
+											},
+											{
+												type: 'text',
+												text: prUrl,
+												marks: [
+													{ type: 'link', attrs: { href: prUrl } },
+												],
+											},
+										],
+									},
+								],
+							},
+						};
+
+						console.log(`Posting Multidev URL to Jira issue ${issueKey}`);
+
+						const response = await fetch(url, {
+							method: 'POST',
+							headers: {
+								Authorization: `Basic ${auth}`,
+								'Content-Type': 'application/json',
+							},
+							body: JSON.stringify(commentPayload),
+						});
+
+						if (!response.ok) {
+							console.log(`Failed to post Multidev URL to Jira. Status: ${response.status}`);
+							console.log(await response.text());
+						} else {
+							console.log('✅ Multidev URL successfully posted to Jira');
+						}
+
