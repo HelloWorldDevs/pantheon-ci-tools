@@ -38,6 +38,7 @@ jobs:
                   echo "DEFAULT_BRANCH=$default_branch" >> "$GITHUB_ENV"
 
             - name: Run Multidev build script
+              id: build_multidev
               env:
                   TERMINUS_TOKEN: ${{ secrets.TERMINUS_TOKEN }}
                   TERMINUS_SITE: ${{ secrets.TERMINUS_SITE }}
@@ -54,21 +55,25 @@ jobs:
               id: multidev_url
               env:
                   TERMINUS_SITE: ${{ secrets.TERMINUS_SITE }}
+                  TERMINUS_ENV: ${{ steps.build_multidev.outputs.TERMINUS_ENV }}
               run: |
-                  # Derive env name the same way as dev-multidev.sh
-                  pr_number="${{ env.PR_NUMBER }}"
-                  jira_title="${{ github.event.pull_request.title }}"
+                  # Prefer TERMINUS_ENV from the build step if available
+                  terminus_env="${TERMINUS_ENV:-}"
+                  if [ -z "$terminus_env" ]; then
+                    echo "TERMINUS_ENV was not exported by dev-multidev.sh; attempting to derive from PR context" >&2
+                    pr_number="${{ env.PR_NUMBER }}"
+                    jira_title="${{ github.event.pull_request.title }}"
 
-                  terminus_env=""
-                  if echo "$jira_title" | grep -Eq '[A-Z]+-[0-9]+'; then
-                    issue_key="$(echo "$jira_title" | grep -Eo '[A-Z]+-[0-9]+' | head -n1)"
-                    terminus_env="$(echo "$issue_key" | tr '[:upper:]' '[:lower:]' | cut -c -11)"
-                  elif [ -n "$pr_number" ] && [ "$pr_number" != "0" ]; then
-                    terminus_env="pr-$pr_number"
-                    terminus_env="$(echo "$terminus_env" | tr '[:upper:]' '[:lower:]' | cut -c -11)"
-                  else
-                    echo "Unable to determine Multidev env name" >&2
-                    exit 1
+                    if echo "$jira_title" | grep -Eq '[A-Z]+-[0-9]+'; then
+                      issue_key="$(echo "$jira_title" | grep -Eo '[A-Z]+-[0-9]+' | head -n1)"
+                      terminus_env="$(echo "$issue_key" | tr '[:upper:]' '[:lower:]' | cut -c -11)"
+                    elif [ -n "$pr_number" ] && [ "$pr_number" != "0" ]; then
+                      terminus_env="pr-$pr_number"
+                      terminus_env="$(echo "$terminus_env" | tr '[:upper:]' '[:lower:]' | cut -c -11)"
+                    else
+                      echo "Unable to determine Multidev env name" >&2
+                      exit 1
+                    fi
                   fi
 
                   echo "Using Multidev env: $terminus_env"

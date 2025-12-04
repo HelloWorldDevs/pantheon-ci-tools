@@ -28,6 +28,9 @@ else
   fi
 fi
 
+# Export the resolved environment name for downstream steps (GitHub Actions, CircleCI, etc.)
+echo "TERMINUS_ENV=$TERMINUS_ENV" >> "${GITHUB_OUTPUT:-/tmp/terminus_env.out}"
+
 # Check if the environment exists and push or create accordingly
 if [[ "$TERMINUS_ENV" == "dev" ]] || terminus env:list "$TERMINUS_SITE" --field=id | grep -q "$TERMINUS_ENV"; then
   echo "Pushing to existing environment: $TERMINUS_ENV..."
