@@ -8,7 +8,7 @@ orbs:
 executors:
   pantheon:
     docker:
-    - image: quay.io/pantheon-public/build-tools-ci:8.x-php8.3
+      - image: quay.io/pantheon-public/build-tools-ci:8.x-php8.3
     working_directory: ~/project
 
   playwright:
