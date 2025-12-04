@@ -91,7 +91,7 @@ jobs:
                       const prNumber = context.payload.pull_request.number;
                       const url = process.env.MULTIDEV_URL;
                       if (!url) {
-                        core.setFailed('MULTIDEV_URL not set');
+                          core.setFailed('MULTIDEV_URL not set');
                       }
                       await github.rest.issues.createComment({
                         ...context.repo,
