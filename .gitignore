@@ -9,3 +9,4 @@ vendor/
 /**/playwright-tests.spec.js-snapshots
 lando-output.yml
 sampleoutput/
+.env
