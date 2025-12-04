@@ -13,8 +13,8 @@ on:
 
 jobs:
   pr_commented:
-    # This job only runs for pull request comments
-    name: PR comment
+    # This job runs for pull request comments, review comments, and reviews
+    name: PR comment or review
     runs-on: ubuntu-latest
     # Only run if this is related to a PR (not a regular issue)
 
