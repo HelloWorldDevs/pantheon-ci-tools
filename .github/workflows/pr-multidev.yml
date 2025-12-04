@@ -141,41 +141,41 @@ jobs:
                       const url = `${JIRA_BASE_URL}/rest/api/3/issue/${issueKey}/comment`;
 
                       const commentPayload = {
-                        body: {
-                          type: 'doc',
-                          version: 1,
-                          content: [
-                            {
-                              type: 'paragraph',
+                          body: {
+                              type: 'doc',
+                              version: 1,
                               content: [
-                                { type: 'text', text: 'Pantheon Multidev environment is ready: ' },
-                                {
-                                  type: 'text',
-                                  text: MULTIDEV_URL,
-                                  marks: [
-                                    { type: 'link', attrs: { href: MULTIDEV_URL } },
-                                  ],
-                                },
+                                  {
+                                      type: 'paragraph',
+                                      content: [
+                                          { type: 'text', text: 'Pantheon Multidev environment is ready: ' },
+                                          {
+                                              type: 'text',
+                                              text: MULTIDEV_URL,
+                                              marks: [
+                                                  { type: 'link', attrs: { href: MULTIDEV_URL } },
+                                              ],
+                                          },
+                                      ],
+                                  },
+                                  {
+                                      type: 'paragraph',
+                                      content: [
+                                          {
+                                              type: 'text',
+                                              text: 'Related PR: ',
+                                          },
+                                          {
+                                              type: 'text',
+                                              text: prUrl,
+                                              marks: [
+                                                  { type: 'link', attrs: { href: prUrl } },
+                                              ],
+                                          },
+                                      ],
+                                  },
                               ],
-                            },
-                            {
-                              type: 'paragraph',
-                              content: [
-                                {
-                                  type: 'text',
-                                  text: 'Related PR: ',
-                                },
-                                {
-                                  type: 'text',
-                                  text: prUrl,
-                                  marks: [
-                                    { type: 'link', attrs: { href: prUrl } },
-                                  ],
-                                },
-                              ],
-                            },
-                          ],
-                        },
+                          },
                       };
 
                       console.log(`Posting Multidev URL to Jira issue ${issueKey}`);
