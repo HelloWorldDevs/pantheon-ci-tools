@@ -120,11 +120,11 @@ jobs:
                       let issueKey = null;
 
                       for (const source of [title, body, branch]) {
-                        const match = source.match(jiraKeyRegex);
-                        if (match) {
-                          issueKey = match[0];
-                          break;
-                        }
+                          const match = source.match(jiraKeyRegex);
+                          if (match) {
+                              issueKey = match[0];
+                              break;
+                          }
                       }
 
                       if (!issueKey) {
