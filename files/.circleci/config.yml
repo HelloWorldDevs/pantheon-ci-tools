@@ -8,12 +8,12 @@ orbs:
 executors:
   pantheon:
     docker:
-      - image: quay.io/pantheon-public/build-tools-ci:8.x-php8.1
+    - image: quay.io/pantheon-public/build-tools-ci:8.x-php8.3
     working_directory: ~/project
 
   playwright:
     docker:
-      - image: mcr.microsoft.com/playwright:v1.52.0-noble
+    - image: mcr.microsoft.com/playwright:v1.52.0-noble
     working_directory: ~/project
 
 defaults: &defaults
@@ -31,180 +31,180 @@ jobs:
     <<: *defaults
     resource_class: small
     steps:
-      # [setup] Checkout code and set up Docker
-      - checkout
-      - setup_remote_docker:
-          docker_layer_caching: true
-      # [vars][wet] Calculate environment URLs and variables
-      - run:
-          name: Setup environment and calculate URLs
-          command: |
-            # Run Pantheon environment setup
-            /build-tools-ci/scripts/set-environment
+    # [setup] Checkout code and set up Docker
+    - checkout
+    - setup_remote_docker:
+        docker_layer_caching: true
+    # [vars][wet] Calculate environment URLs and variables
+    - run:
+        name: Setup environment and calculate URLs
+        command: |
+          # Run Pantheon environment setup
+          /build-tools-ci/scripts/set-environment
 
-            # Source the script to preserve environment variables
-            source ./.ci/scripts/setup_vars.sh
+          # Source the script to preserve environment variables
+          source ./.ci/scripts/setup_vars.sh
 
-            # Verify the variables were set correctly
-            echo "Verification: Using TERMINUS_ENV: $TERMINUS_ENV"
-            echo "Verification: Using MULTIDEV_SITE_URL: $MULTIDEV_SITE_URL"
-            echo "Verification: Using DEV_SITE_URL: $DEV_SITE_URL"
+          # Verify the variables were set correctly
+          echo "Verification: Using TERMINUS_ENV: $TERMINUS_ENV"
+          echo "Verification: Using MULTIDEV_SITE_URL: $MULTIDEV_SITE_URL"
+          echo "Verification: Using DEV_SITE_URL: $DEV_SITE_URL"
 
-            # Create the workspace directory if it doesn't exist
-            mkdir -p /tmp/workspace
+          # Create the workspace directory if it doesn't exist
+          mkdir -p /tmp/workspace
 
-            # Write all variables to a single file for workspace and subsequent steps
-            {
-              # CircleCI variables
-              echo "export CI_BUILD_URL='${CIRCLE_BUILD_URL}'"
-              echo "export CI_NODE_INDEX='${CIRCLE_NODE_INDEX}'"
-              echo "export CI_REPOSITORY_URL='${CIRCLE_REPOSITORY_URL}'"
-              echo "export ARTIFACTS_DIR_URL='${CIRCLE_BUILD_URL}/artifacts/${CIRCLE_NODE_INDEX}/artifacts'"
+          # Write all variables to a single file for workspace and subsequent steps
+          {
+            # CircleCI variables
+            echo "export CI_BUILD_URL='${CIRCLE_BUILD_URL}'"
+            echo "export CI_NODE_INDEX='${CIRCLE_NODE_INDEX}'"
+            echo "export CI_REPOSITORY_URL='${CIRCLE_REPOSITORY_URL}'"
+            echo "export ARTIFACTS_DIR_URL='${CIRCLE_BUILD_URL}/artifacts/${CIRCLE_NODE_INDEX}/artifacts'"
 
-              # Pantheon and site variables
-              echo "export TERMINUS_SITE='$TERMINUS_SITE'"
-              echo "export TERMINUS_ENV='$TERMINUS_ENV'"
-              echo "export JIRA_TICKET_ID='$JIRA_TICKET_ID'"
-              echo "export MULTIDEV_SITE_URL='$MULTIDEV_SITE_URL'"
-              echo "export DEV_SITE_URL='$DEV_SITE_URL'"
-            } > /tmp/workspace/env_vars.sh
+            # Pantheon and site variables
+            echo "export TERMINUS_SITE='$TERMINUS_SITE'"
+            echo "export TERMINUS_ENV='$TERMINUS_ENV'"
+            echo "export JIRA_TICKET_ID='$JIRA_TICKET_ID'"
+            echo "export MULTIDEV_SITE_URL='$MULTIDEV_SITE_URL'"
+            echo "export DEV_SITE_URL='$DEV_SITE_URL'"
+          } > /tmp/workspace/env_vars.sh
 
-            # Also add to BASH_ENV for current job steps
-            cat /tmp/workspace/env_vars.sh >> $BASH_ENV
-            source $BASH_ENV
+          # Also add to BASH_ENV for current job steps
+          cat /tmp/workspace/env_vars.sh >> $BASH_ENV
+          source $BASH_ENV
 
-            echo "Saved environment variables to workspace:"
-            cat /tmp/workspace/env_vars.sh
-      # [build] Handle Composer dependencies
-      - run:
-          name: Clear Composer Cache
-          command: composer clear-cache
-      - run:
-          name: Installing composer dependencies
-          command: composer install --no-ansi --no-interaction --optimize-autoloader --no-progress
-      # [cache] Save Composer cache
-      - save_cache:
-          key: composer-cache-v1-{{ checksum "composer.lock" }}
-          paths:
-            - $HOME/.composer/cache
+          echo "Saved environment variables to workspace:"
+          cat /tmp/workspace/env_vars.sh
+    # [build] Handle Composer dependencies
+    - run:
+        name: Clear Composer Cache
+        command: composer clear-cache
+    - run:
+        name: Installing composer dependencies
+        command: composer install --no-ansi --no-interaction --optimize-autoloader --no-progress
+    # [cache] Save Composer cache
+    - save_cache:
+        key: composer-cache-v1-{{ checksum "composer.lock" }}
+        paths:
+        - $HOME/.composer/cache
 
-      # Load environment variables from external file
-      - run:
-          name: Load environment variables
-          command: |
-            # Make the env vars script executable
-            chmod +x ./.circleci/env_vars.sh
-            # Source it into BASH_ENV for all steps
-            echo 'source ./.circleci/env_vars.sh' >> $BASH_ENV
-            source $BASH_ENV
-            
-      # Verify required environment variables are set
-      - run:
-          name: Verify required theme variables are set
-          command: |
-            if [ -z "${THEME_PATH}" ]; then
-              echo "ERROR: THEME_PATH environment variable is not set!"
-              echo "Please set THEME_PATH in the CircleCI project settings or in .circleci/env_vars.sh"
-              exit 1
-            fi
-            
-            if [ -z "${THEME_BUILD}" ]; then
-              echo "ERROR: THEME_BUILD environment variable is not set!"
-              echo "Please set THEME_BUILD in the CircleCI project settings or in .circleci/env_vars.sh"
-              exit 1
-            fi
-            
-            echo "Required theme variables verified: THEME_PATH=${THEME_PATH}, THEME_COMMAND=${THEME_COMMAND}"
-            
-      # Use npm ci instead of npm install if you want to install dependencies
-      # according to the exact versions in package-lock.json
-      - run:
-          name: Installing NPM dependencies in theme
-          command: cd ${THEME_PATH} && ${THEME_INSTALL}
+    # Load environment variables from external file
+    - run:
+        name: Load environment variables
+        command: |
+          # Make the env vars script executable
+          chmod +x ./.circleci/env_vars.sh
+          # Source it into BASH_ENV for all steps
+          echo 'source ./.circleci/env_vars.sh' >> $BASH_ENV
+          source $BASH_ENV
 
-      # Your existing steps for building assets
-      - run:
-          name: Compiling SCSS to CSS, minifying JS
-          command: cd ${THEME_PATH} && ${THEME_BUILD}
+    # Verify required environment variables are set
+    - run:
+        name: Verify required theme variables are set
+        command: |
+          if [ -z "${THEME_PATH}" ]; then
+            echo "ERROR: THEME_PATH environment variable is not set!"
+            echo "Please set THEME_PATH in the CircleCI project settings or in .circleci/env_vars.sh"
+            exit 1
+          fi
 
-      - persist_to_workspace:
-          root: .
-          paths:
-            - web/themes/
-            - test_routes.json
-      - run:
-          name: Remove .gitignore files from theme directories
-          command: |
-            # Find and remove all .gitignore files in theme subdirectories
-            if [ -n "${THEME_PATH}" ] && [ -d "${THEME_PATH}" ]; then
-              echo "Removing .gitignore files from theme directory: ${THEME_PATH}"
-              find ${THEME_PATH} -type f -name ".gitignore" -exec rm -f {} \;
-              echo "Removed all .gitignore files from theme directories"
-            else
-              echo "Theme path not found or not defined. Skipping .gitignore removal."
-            fi
-      - run:
-          name: Preparing code for Pantheon
-          command: |
-            # Cutting root .gitignore so composer dependencies can be committed
-            sed -i '1,/^# :::::::::::::::::::::: cut ::::::::::::::::::::::$/d' .gitignore
-            # Committing any changes made during the build, including .gitignore adjustments
-            git add -A
-            git commit -m "Preparing code for deployment" || true
-      - run:
-          name: Deploying to Pantheon
-          command: ./.ci/scripts/dev-multidev.sh
-          no_output_timeout: 40m
-      - run:
-          name: Post Multidev URL to GitHub PR
-          command: ./.ci/scripts/post_multidev_url.sh
+          if [ -z "${THEME_BUILD}" ]; then
+            echo "ERROR: THEME_BUILD environment variable is not set!"
+            echo "Please set THEME_BUILD in the CircleCI project settings or in .circleci/env_vars.sh"
+            exit 1
+          fi
 
-      # Save environment variables and Git data for the test job
-      - run:
-          name: Prepare workspace
-          command: |
-            mkdir -p /tmp/workspace
+          echo "Required theme variables verified: THEME_PATH=${THEME_PATH}, THEME_COMMAND=${THEME_COMMAND}"
 
-            # Copy the entire working directory to the workspace
-            # This includes the .git directory which is needed for Jira integration
-            echo "Copying files to workspace..."
-            cp -a . /tmp/workspace/
+    # Use npm ci instead of npm install if you want to install dependencies
+    # according to the exact versions in package-lock.json
+    - run:
+        name: Installing NPM dependencies in theme
+        command: cd ${THEME_PATH} && ${THEME_INSTALL}
 
-            # Make sure the .git directory exists
-            if [ -d "/tmp/workspace/.git" ]; then
-              echo "Git repository found in workspace"
-              # Ensure Git is properly configured in the workspace
-              cd /tmp/workspace
-              git config --global --add safe.directory /tmp/workspace
-              git config --global user.email "circleci@example.com"
-              git config --global user.name "CircleCI"
-            else
-              echo "Warning: .git directory not found in workspace"
-            fi
+    # Your existing steps for building assets
+    - run:
+        name: Compiling SCSS to CSS, minifying JS
+        command: cd ${THEME_PATH} && ${THEME_BUILD}
 
-            # Save environment variables
-            {
-              echo "export TERMINUS_SITE='${TERMINUS_SITE}'"
-              echo "export TERMINUS_ENV='${TERMINUS_ENV}'"
-              echo "export MULTIDEV_SITE_URL='${MULTIDEV_SITE_URL}'"
-              echo "export DEV_SITE_URL='${DEV_SITE_URL}'"
-            } > /tmp/workspace/env_vars.sh
+    - persist_to_workspace:
+        root: .
+        paths:
+        - web/themes/
+        - test_routes.json
+    - run:
+        name: Remove .gitignore files from theme directories
+        command: |
+          # Find and remove all .gitignore files in theme subdirectories
+          if [ -n "${THEME_PATH}" ] && [ -d "${THEME_PATH}" ]; then
+            echo "Removing .gitignore files from theme directory: ${THEME_PATH}"
+            find ${THEME_PATH} -type f -name ".gitignore" -exec rm -f {} \;
+            echo "Removed all .gitignore files from theme directories"
+          else
+            echo "Theme path not found or not defined. Skipping .gitignore removal."
+          fi
+    - run:
+        name: Preparing code for Pantheon
+        command: |
+          # Cutting root .gitignore so composer dependencies can be committed
+          sed -i '1,/^# :::::::::::::::::::::: cut ::::::::::::::::::::::$/d' .gitignore
+          # Committing any changes made during the build, including .gitignore adjustments
+          git add -A
+          git commit -m "Preparing code for deployment" || true
+    - run:
+        name: Deploying to Pantheon
+        command: ./.ci/scripts/dev-multidev.sh
+        no_output_timeout: 40m
+    - run:
+        name: Post Multidev URL to GitHub PR
+        command: ./.ci/scripts/post_multidev_url.sh
 
-            # Debug: Show what we're saving
-            echo "=== Workspace Contents ==="
-            ls -la /tmp/workspace
-            echo "\n=== Saved Environment Variables ==="
-            cat /tmp/workspace/env_vars.sh
-            echo "=================================="
+    # Save environment variables and Git data for the test job
+    - run:
+        name: Prepare workspace
+        command: |
+          mkdir -p /tmp/workspace
 
-      - persist_to_workspace:
-          root: /tmp/workspace
-          paths:
-            - env_vars.sh
-            - .ci/
-            - .circleci/
-            - .git/
-            - test_routes.json
+          # Copy the entire working directory to the workspace
+          # This includes the .git directory which is needed for Jira integration
+          echo "Copying files to workspace..."
+          cp -a . /tmp/workspace/
+
+          # Make sure the .git directory exists
+          if [ -d "/tmp/workspace/.git" ]; then
+            echo "Git repository found in workspace"
+            # Ensure Git is properly configured in the workspace
+            cd /tmp/workspace
+            git config --global --add safe.directory /tmp/workspace
+            git config --global user.email "circleci@example.com"
+            git config --global user.name "CircleCI"
+          else
+            echo "Warning: .git directory not found in workspace"
+          fi
+
+          # Save environment variables
+          {
+            echo "export TERMINUS_SITE='${TERMINUS_SITE}'"
+            echo "export TERMINUS_ENV='${TERMINUS_ENV}'"
+            echo "export MULTIDEV_SITE_URL='${MULTIDEV_SITE_URL}'"
+            echo "export DEV_SITE_URL='${DEV_SITE_URL}'"
+          } > /tmp/workspace/env_vars.sh
+
+          # Debug: Show what we're saving
+          echo "=== Workspace Contents ==="
+          ls -la /tmp/workspace
+          echo "\n=== Saved Environment Variables ==="
+          cat /tmp/workspace/env_vars.sh
+          echo "=================================="
+
+    - persist_to_workspace:
+        root: /tmp/workspace
+        paths:
+        - env_vars.sh
+        - .ci/
+        - .circleci/
+        - .git/
+        - test_routes.json
 
   # Playwright visual regression testing job
   playwright_visual_tests:
@@ -214,88 +214,87 @@ jobs:
     environment:
       ARTIFACTS_FULL_DIR: /tmp/workspace/artifacts
     steps:
-      # [persist][vars] Attach workspace to load saved environment variables and code
-      - attach_workspace:
-          at: /tmp/workspace
-      # [setup] Set up Docker for running visual tests
-      - setup_remote_docker:
-          docker_layer_caching: true
-      # [setup][notify] Install jq for Jira notifications
-      - run:
-          name: Install jq
-          command: apt-get update && apt-get install -y jq
-      # [vars] Load environment variables from the workspace
-      - run:
-          name: Load environment variables
-          command: |
-            # Source the environment variables file
-            if [ -f /tmp/workspace/env_vars.sh ]; then
-              echo "Loading environment variables from workspace..."
-              source /tmp/workspace/env_vars.sh
-              # Add to BASH_ENV for subsequent steps
-              cat /tmp/workspace/env_vars.sh >> $BASH_ENV
-              source $BASH_ENV
+    # [persist][vars] Attach workspace to load saved environment variables and code
+    - attach_workspace:
+        at: /tmp/workspace
+    # [setup] Set up Docker for running visual tests
+    - setup_remote_docker:
+        docker_layer_caching: true
+    # [setup][notify] Install jq for Jira notifications
+    - run:
+        name: Install jq
+        command: apt-get update && apt-get install -y jq
+    # [vars] Load environment variables from the workspace
+    - run:
+        name: Load environment variables
+        command: |
+          # Source the environment variables file
+          if [ -f /tmp/workspace/env_vars.sh ]; then
+            echo "Loading environment variables from workspace..."
+            source /tmp/workspace/env_vars.sh
+            # Add to BASH_ENV for subsequent steps
+            cat /tmp/workspace/env_vars.sh >> $BASH_ENV
+            source $BASH_ENV
 
-              # Debug: Show key environment variables
-              echo "DEV_SITE_URL: $DEV_SITE_URL"
-              echo "MULTIDEV_SITE_URL: $MULTIDEV_SITE_URL"
-            else
-              echo "Warning: Environment variables file not found"
-            fi
+            # Debug: Show key environment variables
+            echo "DEV_SITE_URL: $DEV_SITE_URL"
+            echo "MULTIDEV_SITE_URL: $MULTIDEV_SITE_URL"
+          else
+            echo "Warning: Environment variables file not found"
+          fi
 
-      # [test] Run visual regression tests with Playwright
-      - run:
-          name: Run Playwright visual regression tests
-          command: |
-            echo "Current directory: $(pwd)"
-            echo "Listing contents of /tmp/workspace/.ci/test/visual-regression:"
-            ls -la /tmp/workspace/.ci/test/visual-regression
-            cd /tmp/workspace/.ci/test/visual-regression
-            echo "Installing npm dependencies..."
-            # Use npm ci for cleaner and faster installs in CI
-            npm ci
-            echo "Installing Playwright browsers..."
-            # The base image should have system dependencies, so playwright install should suffice
-            # If issues persist, can switch to 'npx playwright install --with-deps'
-            npx playwright install
-            echo "Running Playwright tests..."
-            chmod +x ./run-playwright
-            ./run-playwright
+    # [test] Run visual regression tests with Playwright
+    - run:
+        name: Run Playwright visual regression tests
+        command: |
+          echo "Current directory: $(pwd)"
+          echo "Listing contents of /tmp/workspace/.ci/test/visual-regression:"
+          ls -la /tmp/workspace/.ci/test/visual-regression
+          cd /tmp/workspace/.ci/test/visual-regression
+          echo "Installing npm dependencies..."
+          # Use npm ci for cleaner and faster installs in CI
+          npm ci
+          echo "Installing Playwright browsers..."
+          # The base image should have system dependencies, so playwright install should suffice
+          # If issues persist, can switch to 'npx playwright install --with-deps'
+          npx playwright install
+          echo "Running Playwright tests..."
+          chmod +x ./run-playwright
+          ./run-playwright
 
+    # [artifacts] Store screenshots with visual comparison reports
+    - store_artifacts:
+        path: /tmp/workspace/.ci/test/visual-regression/playwright-report
 
-      # [artifacts] Store screenshots with visual comparison reports
-      - store_artifacts:
-          path: /tmp/workspace/.ci/test/visual-regression/playwright-report
+    # [artifacts] Store JUnit test results
+    - store_test_results:
+        path: /tmp/workspace/.ci/test/visual-regression/test-results
 
-      # [artifacts] Store JUnit test results
-      - store_test_results:
-          path: /tmp/workspace/.ci/test/visual-regression/test-results
-
-      # [notify] Notify Slack on failure
-      - slack/notify:
-          event: fail
-          channel: C06G970M5PF
-          template: basic_fail_1
-      # [notify][jira] Send notification to Jira
-      - jira/notify:
-          environment: testing
-          job_type: deployment
-          debug: true
-          pipeline_id: << pipeline.id >>
-          pipeline_number: << pipeline.number >>
+    # [notify] Notify Slack on failure
+    - slack/notify:
+        event: fail
+        channel: C06G970M5PF
+        template: basic_fail_1
+    # [notify][jira] Send notification to Jira
+    - jira/notify:
+        environment: testing
+        job_type: deployment
+        debug: true
+        pipeline_id: << pipeline.id >>
+        pipeline_number: << pipeline.number >>
 # [workflow] Main build, test, and notification workflow
 workflows:
   build_test_notify:
     jobs:
-      # [job] Primary build and deployment job
-      - build_and_deploy:
-          context:
-            - GITHUB_TOKEN
-      # [job] Playwright visual regression tests
-      - playwright_visual_tests:
-          requires:
-            - build_and_deploy
-          # [context] Shared secrets and environment variables
-          context:
-            - SLACK_ACCESS_TOKEN
-            - JIRA_WEBHOOK_URL
+    # [job] Primary build and deployment job
+    - build_and_deploy:
+        context:
+        - GITHUB_TOKEN
+    # [job] Playwright visual regression tests
+    - playwright_visual_tests:
+        requires:
+        - build_and_deploy
+        # [context] Shared secrets and environment variables
+        context:
+        - SLACK_ACCESS_TOKEN
+        - JIRA_WEBHOOK_URL
