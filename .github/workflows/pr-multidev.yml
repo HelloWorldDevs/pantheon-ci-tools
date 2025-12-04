@@ -128,13 +128,13 @@ jobs:
                       }
 
                       if (!issueKey) {
-                        console.log('No Jira issue key found in PR title/body/branch; skipping Jira comment.');
-                        return;
+                          console.log('No Jira issue key found in PR title/body/branch; skipping Jira comment.');
+                          return;
                       }
 
                       if (!JIRA_BASE_URL || !JIRA_USER || !JIRA_TOKEN) {
-                        console.log('Missing Jira configuration; skipping Jira comment.');
-                        return;
+                          console.log('Missing Jira configuration; skipping Jira comment.');
+                          return;
                       }
 
                       const auth = Buffer.from(`${JIRA_USER}:${JIRA_TOKEN}`).toString('base64');
