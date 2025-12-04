@@ -28,8 +28,18 @@ else
   fi
 fi
 
-# Export the resolved environment name for downstream steps (GitHub Actions, CircleCI, etc.)
-echo "TERMINUS_ENV=$TERMINUS_ENV" >> "${GITHUB_OUTPUT:-/tmp/terminus_env.out}"
+# Export the resolved environment name for downstream steps.
+# - In GitHub Actions, GITHUB_OUTPUT is used for step outputs.
+# - In CircleCI, export via $BASH_ENV for use in subsequent steps.
+# - If neither is detected, write to /tmp/terminus_env.out as a fallback (must be consumed manually).
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+  echo "TERMINUS_ENV=$TERMINUS_ENV" >> "$GITHUB_OUTPUT"
+elif [[ -n "${CIRCLECI:-}" && -n "${BASH_ENV:-}" ]]; then
+  echo "export TERMINUS_ENV=$TERMINUS_ENV" >> "$BASH_ENV"
+else
+  echo "TERMINUS_ENV=$TERMINUS_ENV" >> /tmp/terminus_env.out
+  echo "Warning: Neither GitHub Actions nor CircleCI detected. Wrote TERMINUS_ENV to /tmp/terminus_env.out. You must source or read this file manually in subsequent steps."
+fi
 
 # Check if the environment exists and push or create accordingly
 if [[ "$TERMINUS_ENV" == "dev" ]] || terminus env:list "$TERMINUS_SITE" --field=id | grep -q "$TERMINUS_ENV"; then
