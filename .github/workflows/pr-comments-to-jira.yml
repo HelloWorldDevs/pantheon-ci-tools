@@ -81,7 +81,13 @@ jobs:
               console.log('Handling pull_request_review event');
               const { owner, repo } = context.repo;
               const pullNumber = context.payload.pull_request.number;
-              commentBody = context.payload.review.body || `${context.payload.review.state} review`;
+              // Only use the review body if it is non-empty and not just whitespace
+              const reviewBody = context.payload.review.body;
+              if (!reviewBody || !reviewBody.trim()) {
+                console.log('No review body provided; skipping Jira comment.');
+                return;
+              }
+              commentBody = reviewBody;
               commentAuthor = context.payload.review.user.login;
               
               // Get PR details
