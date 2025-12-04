@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     # Only run if this is related to a PR (not a regular issue)
 
-    if: ${{ github.event.issue.pull_request }}
+    if: ${{ github.event.issue.pull_request || github.event.pull_request }}
     steps:
       - name: Debug event info
         run: |
