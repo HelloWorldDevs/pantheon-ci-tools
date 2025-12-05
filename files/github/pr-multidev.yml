@@ -1,0 +1,91 @@
+name: PR Multidev
+
+on:
+  pull_request:
+    types: [ opened, synchronize, reopened ]
+
+jobs:
+  build-multidev:
+    name: Build Pantheon Multidev
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: "8.3"
+
+    - name: Install Terminus
+      run: |
+        curl -L https://github.com/pantheon-systems/terminus/releases/latest/download/terminus.phar -o terminus
+        chmod +x terminus
+        sudo mv terminus /usr/local/bin/terminus
+
+    - name: Install Terminus Build Tools plugin
+      run: |
+        terminus self:plugin:install pantheon-systems/terminus-build-tools-plugin
+
+    - name: Set Multidev environment variables
+      id: env_vars
+      run: |
+        pr_number="${{ github.event.pull_request.number }}"
+        branch_name="${{ github.event.pull_request.head.ref }}"
+
+        echo "PR_NUMBER=$pr_number" >> "$GITHUB_ENV"
+        echo "CI_BRANCH=$branch_name" >> "$GITHUB_ENV"
+
+        default_branch="${{ github.event.repository.default_branch }}"
+        echo "DEFAULT_BRANCH=$default_branch" >> "$GITHUB_ENV"
+
+    - name: Git identity configuration
+      run: |
+        git config --global user.email "actions@github.com"
+        git config --global user.name "GitHub Actions"
+
+    - name: Run Multidev build script
+      id: build_multidev
+      env:
+        TERMINUS_TOKEN: ${{ secrets.TERMINUS_TOKEN }}
+        TERMINUS_SITE: ${{ secrets.TERMINUS_SITE }}
+        CI_BRANCH: ${{ env.CI_BRANCH }}
+        DEFAULT_BRANCH: ${{ env.DEFAULT_BRANCH }}
+        JIRA_TICKET_ID: ${{ github.event.pull_request.title }}
+        PR_NUMBER: ${{ env.PR_NUMBER }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        chmod +x .ci/scripts/dev-multidev.sh
+        ./.ci/scripts/dev-multidev.sh
+
+    - name: Determine Multidev URL
+      id: multidev_url
+      env:
+        TERMINUS_SITE: ${{ secrets.TERMINUS_SITE }}
+        TERMINUS_ENV: ${{ steps.build_multidev.outputs.TERMINUS_ENV }}
+      run: |
+        # Prefer TERMINUS_ENV from the build step if available
+        terminus_env="${TERMINUS_ENV:-}"
+        if [ -z "$terminus_env" ]; then
+          echo "ERROR: TERMINUS_ENV was not exported by dev-multidev.sh. Failing as this is required for Multidev URL determination." >&2
+          exit 1
+        fi
+
+        echo "Using Multidev env: $terminus_env"
+
+        multidev_url="https://$terminus_env-$TERMINUS_SITE.pantheonsite.io/"
+        echo "MULTIDEV_URL=$multidev_url" >> "$GITHUB_OUTPUT"
+
+    - name: Post Multidev URL to GitHub and Jira
+      if: ${{ steps.multidev_url.outputs.MULTIDEV_URL != '' }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        PR_NUMBER: ${{ env.PR_NUMBER }}
+        MULTIDEV_SITE_URL: ${{ steps.multidev_url.outputs.MULTIDEV_URL }}
+        JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+        JIRA_USER: ${{ secrets.JIRA_USER }}
+        JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+      run: |
+        chmod +x .ci/scripts/post_multidev_url.sh
+        ./.ci/scripts/post_multidev_url.sh
