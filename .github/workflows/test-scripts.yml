@@ -1,0 +1,18 @@
+name: Test Scripts
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+jobs:
+  test-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Post Multidev URL Test
+        run: |
+          chmod +x test_post_multidev_url.sh
+          ./test_post_multidev_url.sh
