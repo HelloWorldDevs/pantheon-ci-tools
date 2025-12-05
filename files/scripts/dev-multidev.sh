@@ -42,7 +42,7 @@ fi
 # Export the resolved environment name for downstream steps.
 # - In GitHub Actions, GITHUB_OUTPUT is used for step outputs.
 # - In CircleCI, export via $BASH_ENV for use in subsequent steps.
-# - If neither is detected, write to /tmp/terminus_env.out as a fallback (must be consumed manually).
+# - If neither is detected, write to /tmp/terminus_env.out as a fallback.
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
   echo "TERMINUS_ENV=$TERMINUS_ENV" >> "$GITHUB_OUTPUT"
 elif [[ -n "${CIRCLECI:-}" && -n "${BASH_ENV:-}" ]]; then
