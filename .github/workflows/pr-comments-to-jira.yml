@@ -7,7 +7,7 @@ on:
   # Comments on specific lines of code in PRs
   pull_request_review_comment:
     types: [created]
-  # Overall reviews on PRs
+  # Overall reviews on PRs (includes approval, change request, and comment-only reviews)
   pull_request_review:
     types: [submitted]
 
