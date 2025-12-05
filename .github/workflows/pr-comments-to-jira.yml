@@ -1,23 +1,38 @@
 name: PR Comments to Jira
 
 on:
+  # Regular comments on PRs
   issue_comment:
     types: [created]
+  # Comments on specific lines of code in PRs
   pull_request_review_comment:
     types: [created]
+  # Overall reviews on PRs (includes approval, change request, and comment-only reviews)
+  pull_request_review:
+    types: [submitted]
 
 jobs:
-  process_pr_to_jira:
+  pr_commented:
+    # This job runs for pull request comments, review comments, and reviews
+    name: PR comment or review
     runs-on: ubuntu-latest
-    # Only run if this is a PR comment (not an issue comment)
-    if: |
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request) || 
-      github.event_name == 'pull_request_review_comment'
+    # Only run if this is related to a PR (not a regular issue)
+
+    if: ${{ github.event.issue.pull_request || github.event.pull_request }}
     steps:
       - name: Debug event info
         run: |
           echo "Event name: ${{ github.event_name }}"
           echo "Event action: ${{ github.event.action }}"
+          echo "Repository: ${{ github.repository }}"
+          echo "Actor: ${{ github.actor }}"
+          echo "Workflow file: ${{ github.workflow }}"
+          echo "Event path: ${{ github.event_path }}"
+          
+      - name: Dump GitHub context
+        env:
+          GITHUB_CONTEXT: ${{ toJson(github) }}
+        run: echo "$GITHUB_CONTEXT"
 
       - name: Get PR and comment details
         id: pr_details
@@ -47,12 +62,46 @@ jobs:
               pullRequest = await prResponse.json();
               
             } else if (eventName === 'pull_request_review_comment') {
-              // Review comment
+              // Comment on a specific line of code in a PR
               console.log('Handling pull_request_review_comment event');
               const { owner, repo } = context.repo;
               const pullNumber = context.payload.pull_request.number;
               commentBody = context.payload.comment.body;
               commentAuthor = context.payload.comment.user.login;
+              
+              // Get PR details
+              pullRequest = await github.rest.pulls.get({
+                owner,
+                repo,
+                pull_number: pullNumber
+              }).then(response => response.data);
+              
+            } else if (eventName === 'pull_request_review') {
+              // Overall PR review (approve/request changes/comment)
+              console.log('Handling pull_request_review event');
+              const { owner, repo } = context.repo;
+              const pullNumber = context.payload.pull_request.number;
+              // Only use the review body if it is non-empty and not just whitespace
+              const reviewBody = context.payload.review.body;
+              let hasInlineComments = false;
+              // Fetch inline comments for this review
+              const reviewId = context.payload.review.id;
+              const reviewComments = await github.rest.pulls.listReviewComments({
+                owner,
+                repo,
+                pull_number: pullNumber,
+                // No per_page or page params: get all comments (default 30, should be enough for most reviews)
+              });
+              if (reviewComments.data && reviewComments.data.length > 0) {
+                // Filter comments to only those belonging to this review
+                hasInlineComments = reviewComments.data.some(c => c.pull_request_review_id === reviewId);
+              }
+              if ((!reviewBody || !reviewBody.trim()) && !hasInlineComments) {
+                console.log('No review body or inline comments provided; skipping Jira comment.');
+                return;
+              }
+              commentBody = reviewBody;
+              commentAuthor = context.payload.review.user.login;
               
               // Get PR details
               pullRequest = await github.rest.pulls.get({
