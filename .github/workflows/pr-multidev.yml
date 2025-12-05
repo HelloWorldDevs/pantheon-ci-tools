@@ -24,6 +24,10 @@ jobs:
           chmod +x terminus
           sudo mv terminus /usr/local/bin/terminus
 
+      - name: Install Terminus Build Tools plugin
+        run: |
+          terminus self:plugin:install pantheon-systems/terminus-build-tools-plugin
+
       - name: Set Multidev environment variables
         id: env_vars
         run: |
