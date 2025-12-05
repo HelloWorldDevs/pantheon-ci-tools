@@ -42,8 +42,8 @@ jobs:
 
       - name: Git identity configuration
         run: |
-          git config user.email "jeremiah@helloworlddevs.com"
-          git config user.name "dsatpm"
+          git config --global user.email "jeremiah@helloworlddevs.com"
+          git config --global user.name "dsatpm"
 
       - name: Run Multidev build script
         id: build_multidev
