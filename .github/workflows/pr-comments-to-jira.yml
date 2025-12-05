@@ -83,8 +83,21 @@ jobs:
               const pullNumber = context.payload.pull_request.number;
               // Only use the review body if it is non-empty and not just whitespace
               const reviewBody = context.payload.review.body;
-              if (!reviewBody || !reviewBody.trim()) {
-                console.log('No review body provided; skipping Jira comment.');
+              let hasInlineComments = false;
+              // Fetch inline comments for this review
+              const reviewId = context.payload.review.id;
+              const reviewComments = await github.rest.pulls.listReviewComments({
+                owner,
+                repo,
+                pull_number: pullNumber,
+                // No per_page or page params: get all comments (default 30, should be enough for most reviews)
+              });
+              if (reviewComments.data && reviewComments.data.length > 0) {
+                // Filter comments to only those belonging to this review
+                hasInlineComments = reviewComments.data.some(c => c.pull_request_review_id === reviewId);
+              }
+              if ((!reviewBody || !reviewBody.trim()) && !hasInlineComments) {
+                console.log('No review body or inline comments provided; skipping Jira comment.');
                 return;
               }
               commentBody = reviewBody;
