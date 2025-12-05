@@ -14,8 +14,18 @@ else
 
   # Determine environment name based on JIRA_TICKET_ID or PR_NUMBER
   if [[ -n "${JIRA_TICKET_ID:-}" ]]; then
-    # Sanitize JIRA_TICKET_ID to ensure it's lowercase and meets Pantheon's requirements
-    TERMINUS_ENV=$(echo "$JIRA_TICKET_ID" | tr '[:upper:]' '[:lower:]' | cut -c -11)
+    # Prefer a proper Jira issue key (e.g., L10DD-40) if present
+    jira_key=$(echo "$JIRA_TICKET_ID" | grep -Eo '[A-Z]{2,10}-[0-9]+' | head -n1 || true)
+    if [[ -n "$jira_key" ]]; then
+      # Use the Jira key as the base, normalized
+      raw_env=$(echo "$jira_key" | tr '[:upper:]' '[:lower:]')
+    else
+      # Fallback: sanitize the whole title, replacing non-alnum/dash with dashes
+      raw_env=$(echo "$JIRA_TICKET_ID" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g')
+    fi
+
+    # Truncate to Pantheon's max length for multidev env names
+    TERMINUS_ENV=$(echo "$raw_env" | cut -c -11)
     echo "Using Jira Ticket ID for Multidev Environment: $TERMINUS_ENV"
   elif [[ -n "${PR_NUMBER:-}" && "$PR_NUMBER" != "0" ]]; then
     # Use PR number with prefix, ensuring it's lowercase and meets Pantheon's requirements
