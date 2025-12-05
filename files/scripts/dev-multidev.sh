@@ -22,7 +22,7 @@ else
       raw_env=$(echo "$jira_key" | tr '[:upper:]' '[:lower:]')
     else
       # Fallback: sanitize the whole title, replacing non-alnum/dash with dashes
-      raw_env=$(echo "$JIRA_TICKET_ID" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g')
+      raw_env=$(echo "$JIRA_TICKET_ID" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/-\+/-/g')
     fi
 
     # Truncate to Pantheon's max length for multidev env names
