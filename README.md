@@ -72,6 +72,11 @@ Set these in your CI environment:
 PANTHEON_SITE=your-site-name
 TERMINUS_TOKEN=your-terminus-token
 GITHUB_TOKEN=your-github-token
+
+# Optional (for Jira integration)
+JIRA_BASE_URL=https://your-domain.atlassian.net
+JIRA_USER=your-email@example.com
+JIRA_TOKEN=your-jira-api-token
 ```
 
 ## Troubleshooting
