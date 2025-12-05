@@ -49,7 +49,7 @@ elif [[ -n "${CIRCLECI:-}" && -n "${BASH_ENV:-}" ]]; then
   echo "export TERMINUS_ENV=$TERMINUS_ENV" >> "$BASH_ENV"
 else
   echo "TERMINUS_ENV=$TERMINUS_ENV" >> /tmp/terminus_env.out
-  echo "Warning: Neither GitHub Actions nor CircleCI detected. Wrote TERMINUS_ENV to /tmp/terminus_env.out. You must source or read this file manually in subsequent steps."
+  echo "Warning: Neither GitHub Actions nor CircleCI detected. Wrote TERMINUS_ENV to /tmp/terminus_env.out. You must source or read this file manually in subsequent steps." >&2
 fi
 
 # Check if the environment exists and push or create accordingly
