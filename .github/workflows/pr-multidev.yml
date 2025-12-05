@@ -77,112 +77,15 @@ jobs:
           multidev_url="https://$terminus_env-$TERMINUS_SITE.pantheonsite.io/"
           echo "MULTIDEV_URL=$multidev_url" >> "$GITHUB_OUTPUT"
 
-      - name: Comment Multidev URL on PR
-        uses: actions/github-script@v6
-        env:
-          MULTIDEV_URL: ${{ steps.multidev_url.outputs.MULTIDEV_URL }}
-        with:
-          script: |
-            const prNumber = context.payload.pull_request.number;
-            const url = process.env.MULTIDEV_URL;
-            if (!url) {
-              core.setFailed('MULTIDEV_URL not set');
-            }
-            await github.rest.issues.createComment({
-              ...context.repo,
-              issue_number: prNumber,
-              body: `Pantheon Multidev environment is ready: ${url}`,
-            });
-
-      - name: Post Multidev URL to Jira
+      - name: Post Multidev URL to GitHub and Jira
         if: ${{ steps.multidev_url.outputs.MULTIDEV_URL != '' }}
-        uses: actions/github-script@v6
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ env.PR_NUMBER }}
+          MULTIDEV_SITE_URL: ${{ steps.multidev_url.outputs.MULTIDEV_URL }}
           JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
           JIRA_USER: ${{ secrets.JIRA_USER }}
           JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
-          MULTIDEV_URL: ${{ steps.multidev_url.outputs.MULTIDEV_URL }}
-        with:
-          script: |
-            const { JIRA_BASE_URL, JIRA_USER, JIRA_TOKEN, MULTIDEV_URL } = process.env;
-            const title = context.payload.pull_request.title || '';
-            const body = context.payload.pull_request.body || '';
-            const branch = context.payload.pull_request.head.ref || '';
-            const prUrl = context.payload.pull_request.html_url;
-
-            const jiraKeyRegex = /[A-Z]+-[0-9]+/;
-            let issueKey = null;
-
-            for (const source of [title, body, branch]) {
-              const match = source.match(jiraKeyRegex);
-              if (match) {
-                issueKey = match[0];
-                break;
-              }
-            }
-
-            if (!issueKey) {
-              console.log('No Jira issue key found in PR title/body/branch; skipping Jira comment.');
-              return;
-            }
-
-            if (!JIRA_BASE_URL || !JIRA_USER || !JIRA_TOKEN) {
-              console.log('Missing Jira configuration; skipping Jira comment.');
-              return;
-            }
-
-            const auth = Buffer.from(`${JIRA_USER}:${JIRA_TOKEN}`).toString('base64');
-            const url = `${JIRA_BASE_URL}/rest/api/3/issue/${issueKey}/comment`;
-
-            const commentPayload = {
-              body: {
-                type: 'doc',
-                version: 1,
-                content: [
-                  {
-                    type: 'paragraph',
-                    content: [
-                      { type: 'text', text: 'Pantheon Multidev environment is ready: ' },
-                      {
-                        type: 'text',
-                        text: MULTIDEV_URL,
-                        marks: [
-                          { type: 'link', attrs: { href: MULTIDEV_URL } },
-                        ],
-                      },
-                    ],
-                  },
-                  {
-                    type: 'paragraph',
-                    content: [
-                      { type: 'text', text: 'Related PR: ' },
-                      {
-                        type: 'text',
-                        text: prUrl,
-                        marks: [
-                          { type: 'link', attrs: { href: prUrl } },
-                        ],
-                      },
-                    ],
-                  },
-                ],
-              },
-            };
-
-            console.log(`Posting Multidev URL to Jira issue ${issueKey}`);
-
-            const response = await fetch(url, {
-              method: 'POST',
-              headers: {
-                Authorization: `Basic ${auth}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify(commentPayload),
-            });
-
-            if (!response.ok) {
-              console.log(`Failed to post Multidev URL to Jira. Status: ${response.status}`);
-              console.log(await response.text());
-            } else {
-              console.log('✅ Multidev URL successfully posted to Jira');
-            }
+        run: |
+          chmod +x files/scripts/post_multidev_url.sh
+          ./files/scripts/post_multidev_url.sh

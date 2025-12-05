@@ -2,9 +2,18 @@
 
 set -euo pipefail
 
+# Detect CI Environment and normalize variables
+if [ -n "${GITHUB_ACTIONS:-}" ]; then
+  echo "Detected GitHub Actions environment"
+  : "${CIRCLE_BRANCH:=${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}}"
+  : "${CIRCLE_PROJECT_USERNAME:=${GITHUB_REPOSITORY_OWNER}}"
+  # GITHUB_REPOSITORY is "owner/repo"
+  : "${CIRCLE_PROJECT_REPONAME:=${GITHUB_REPOSITORY#*/}}"
+fi
+
 # Exit immediately if this is the master branch
-if [ "${CIRCLE_BRANCH:-}" = "master" ]; then
-  echo "This is the master branch - skipping PR comment"
+if [ "${CIRCLE_BRANCH:-}" = "master" ] || [ "${CIRCLE_BRANCH:-}" = "main" ]; then
+  echo "This is the main/master branch - skipping PR comment"
   exit 0
 fi
 
