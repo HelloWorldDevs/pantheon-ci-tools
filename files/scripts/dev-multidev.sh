@@ -14,7 +14,8 @@ else
 
   # Determine environment name based on JIRA_TICKET_ID or PR_NUMBER
   if [[ -n "${JIRA_TICKET_ID:-}" ]]; then
-    # Prefer a proper Jira issue key (e.g., L10DD-40) if present
+    # Prefer a proper Jira issue key (e.g., L10DD-40) if present.
+    # Note: Jira project keys can contain numbers after the first character (e.g., "L10DD-40").
     jira_key=$(echo "$JIRA_TICKET_ID" | grep -Eo '[A-Z]{2,10}-[0-9]+' | head -n1 || true)
     if [[ -n "$jira_key" ]]; then
       # Use the Jira key as the base, normalized
