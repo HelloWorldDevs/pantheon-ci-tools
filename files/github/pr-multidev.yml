@@ -27,6 +27,8 @@ jobs:
 
     - name: Build Assets
       run: |
+        # Increase timeout for slow downloads
+        export COMPOSER_PROCESS_TIMEOUT=2000
         composer install --no-dev --optimize-autoloader
         # Force add vendor to git so it is included in the push to Pantheon
         # We use -f because vendor is likely in .gitignore
