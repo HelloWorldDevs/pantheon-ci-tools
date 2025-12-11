@@ -205,6 +205,21 @@ jobs:
         - .git/
         - test_routes.json
 
+    # [notify] Send notifications on failure
+    - when:
+        condition: on_fail
+        steps:
+        - slack/notify:
+            event: fail
+            channel: C06G970M5PF
+            template: basic_fail_1
+        - jira/notify:
+            environment: development
+            job_type: deployment
+            state: failed
+            pipeline_id: << pipeline.id >>
+            pipeline_number: << pipeline.number >>
+
   # Playwright visual regression testing job
   playwright_visual_tests:
     executor: playwright
@@ -289,6 +304,8 @@ workflows:
     - build_and_deploy:
         context:
         - GITHUB_TOKEN
+        - SLACK_ACCESS_TOKEN
+        - JIRA_WEBHOOK_URL
     # [job] Playwright visual regression tests
     - playwright_visual_tests:
         requires:
