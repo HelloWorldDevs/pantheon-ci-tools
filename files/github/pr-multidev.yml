@@ -20,6 +20,16 @@ jobs:
       with:
         php-version: "8.3"
 
+    - name: Build Assets
+      run: |
+        composer install --no-dev --optimize-autoloader
+        # Force add vendor to git so it is included in the push to Pantheon
+        # We use -f because vendor is likely in .gitignore
+        git add -f vendor
+        # We need to commit this so the local git state has the vendor files
+        # This commit is temporary and only exists on the runner for the push
+        git commit -m "Build assets for Pantheon deployment" || echo "Nothing to commit"
+
     - name: Install Terminus
       run: |
         curl -L https://github.com/pantheon-systems/terminus/releases/latest/download/terminus.phar -o terminus
@@ -50,13 +60,13 @@ jobs:
         branch="${{ github.event.pull_request.head.ref }}"
         # Regex to find key like PROJ-123 (case insensitive)
         regex="([a-zA-Z]+-[0-9]+)"
-        
+
         if [[ "$title" =~ $regex ]]; then
           key="${BASH_REMATCH[1]}"
         elif [[ "$branch" =~ $regex ]]; then
           key="${BASH_REMATCH[1]}"
         fi
-        
+
         if [[ -n "$key" ]]; then
           # Convert to uppercase for Jira API consistency
           key=$(echo "$key" | tr '[:lower:]' '[:upper:]')
