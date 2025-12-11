@@ -48,11 +48,22 @@ jobs:
       run: |
         title="${{ github.event.pull_request.title }}"
         branch="${{ github.event.pull_request.head.ref }}"
-        # Regex to find key like PROJ-123
-        if [[ "$title" =~ ([A-Z]+-[0-9]+) ]]; then
-          echo "ISSUE_KEY=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
-        elif [[ "$branch" =~ ([A-Z]+-[0-9]+) ]]; then
-          echo "ISSUE_KEY=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+        # Regex to find key like PROJ-123 (case insensitive)
+        regex="([a-zA-Z]+-[0-9]+)"
+        
+        if [[ "$title" =~ $regex ]]; then
+          key="${BASH_REMATCH[1]}"
+        elif [[ "$branch" =~ $regex ]]; then
+          key="${BASH_REMATCH[1]}"
+        fi
+        
+        if [[ -n "$key" ]]; then
+          # Convert to uppercase for Jira API consistency
+          key=$(echo "$key" | tr '[:lower:]' '[:upper:]')
+          echo "Found Jira Key: $key"
+          echo "ISSUE_KEY=$key" >> "$GITHUB_OUTPUT"
+        else
+          echo "No Jira Key found in title or branch."
         fi
 
     - name: Git identity configuration
