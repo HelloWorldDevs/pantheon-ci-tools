@@ -75,6 +75,7 @@ PANTHEON_SITE=your-site-name
 TERMINUS_TOKEN=your-terminus-token
 GITHUB_TOKEN=your-github-token
 SSH_PRIVATE_KEY=your-ssh-private-key-for-pantheon
+SLACK_WEBHOOK_URL=your-slack-webhook-url
 
 # Optional (for Jira integration)
 JIRA_BASE_URL=https://your-domain.atlassian.net
