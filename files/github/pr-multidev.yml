@@ -1,0 +1,227 @@
+name: PR Multidev
+
+on:
+  pull_request:
+    types: [ opened, synchronize, reopened ]
+
+jobs:
+  build-multidev:
+    name: Build Pantheon Multidev
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: "8.3"
+
+    - name: Git identity configuration
+      run: |
+        git config --global user.email "actions@github.com"
+        git config --global user.name "GitHub Actions"
+
+    - name: Build Assets
+      run: |
+        # Increase timeout for slow downloads
+        export COMPOSER_PROCESS_TIMEOUT=2000
+        composer install --no-dev --optimize-autoloader
+        # Force add vendor to git so it is included in the push to Pantheon
+        # We use -f because vendor is likely in .gitignore
+        git add -f vendor
+        # We need to commit this so the local git state has the vendor files
+        # This commit is temporary and only exists on the runner for the push
+        git commit -m "Build assets for Pantheon deployment" || echo "Nothing to commit"
+
+    - name: Install Terminus
+      run: |
+        curl -L https://github.com/pantheon-systems/terminus/releases/latest/download/terminus.phar -o terminus
+        chmod +x terminus
+        sudo mv terminus /usr/local/bin/terminus
+
+    - name: Install Terminus Build Tools plugin
+      run: |
+        terminus self:plugin:install pantheon-systems/terminus-build-tools-plugin
+        terminus self:plugin:install pantheon-systems/terminus-secrets-plugin
+
+    - name: Set Multidev environment variables
+      id: env_vars
+      run: |
+        pr_number="${{ github.event.pull_request.number }}"
+        branch_name="${{ github.event.pull_request.head.ref }}"
+
+        echo "PR_NUMBER=$pr_number" >> "$GITHUB_ENV"
+        echo "CI_BRANCH=$branch_name" >> "$GITHUB_ENV"
+
+        default_branch="${{ github.event.repository.default_branch }}"
+        echo "DEFAULT_BRANCH=$default_branch" >> "$GITHUB_ENV"
+
+    - name: Extract Jira Key
+      id: jira_key
+      run: |
+        title="${{ github.event.pull_request.title }}"
+        branch="${{ github.event.pull_request.head.ref }}"
+        # Regex to find key like PROJ-123 (case insensitive)
+        regex="([a-zA-Z]+-[0-9]+)"
+
+        if [[ "$title" =~ $regex ]]; then
+          key="${BASH_REMATCH[1]}"
+        elif [[ "$branch" =~ $regex ]]; then
+          key="${BASH_REMATCH[1]}"
+        fi
+
+        if [[ -n "$key" ]]; then
+          # Convert to uppercase for Jira API consistency
+          key=$(echo "$key" | tr '[:lower:]' '[:upper:]')
+          echo "Found Jira Key: $key"
+          echo "ISSUE_KEY=$key" >> "$GITHUB_OUTPUT"
+        else
+          echo "No Jira Key found in title or branch."
+        fi
+
+    - name: Add SSH Key
+      uses: webfactory/ssh-agent@v0.9.0
+      with:
+        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+    - name: Run Multidev build script
+      id: build_multidev
+      env:
+        TERMINUS_TOKEN: ${{ secrets.TERMINUS_TOKEN }}
+        TERMINUS_SITE: ${{ secrets.TERMINUS_SITE }}
+        CI_BRANCH: ${{ env.CI_BRANCH }}
+        DEFAULT_BRANCH: ${{ env.DEFAULT_BRANCH }}
+        JIRA_TICKET_ID: ${{ github.event.pull_request.title }}
+        PR_NUMBER: ${{ env.PR_NUMBER }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        chmod +x .ci/scripts/dev-multidev.sh
+        ./.ci/scripts/dev-multidev.sh
+
+    - name: Determine Multidev URL
+      id: multidev_url
+      env:
+        TERMINUS_SITE: ${{ secrets.TERMINUS_SITE }}
+        TERMINUS_ENV: ${{ steps.build_multidev.outputs.TERMINUS_ENV }}
+      run: |
+        # Prefer TERMINUS_ENV from the build step if available
+        terminus_env="${TERMINUS_ENV:-}"
+        if [ -z "$terminus_env" ]; then
+          echo "ERROR: TERMINUS_ENV was not exported by dev-multidev.sh. Failing as this is required for Multidev URL determination." >&2
+          exit 1
+        fi
+
+        echo "Using Multidev env: $terminus_env"
+
+        multidev_url="https://$terminus_env-$TERMINUS_SITE.pantheonsite.io/"
+        echo "MULTIDEV_URL=$multidev_url" >> "$GITHUB_OUTPUT"
+
+    - name: Post Multidev URL to GitHub and Jira
+      if: ${{ steps.multidev_url.outputs.MULTIDEV_URL != '' }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        PR_NUMBER: ${{ env.PR_NUMBER }}
+        MULTIDEV_SITE_URL: ${{ steps.multidev_url.outputs.MULTIDEV_URL }}
+        JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+        JIRA_USER: ${{ secrets.JIRA_USER }}
+        JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+      run: |
+        chmod +x .ci/scripts/post_multidev_url.sh
+        ./.ci/scripts/post_multidev_url.sh
+
+    - name: Setup Node.js for VRT
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Run Visual Regression Tests
+      id: vrt
+      continue-on-error: true
+      env:
+        DEV_SITE_URL: "https://dev-${{ secrets.TERMINUS_SITE }}.pantheonsite.io"
+        MULTIDEV_SITE_URL: ${{ steps.multidev_url.outputs.MULTIDEV_URL }}
+      run: |
+        cd .ci/test/visual-regression
+        if [ -f package.json ]; then npm ci; fi
+        npx playwright install --with-deps
+        chmod +x run-playwright
+        ./run-playwright
+
+    - name: Upload VRT Report to Multidev
+      if: steps.vrt.outcome == 'failure'
+      id: vrt_report
+      env:
+        TERMINUS_TOKEN: ${{ secrets.TERMINUS_TOKEN }}
+        TERMINUS_SITE: ${{ secrets.TERMINUS_SITE }}
+        TERMINUS_ENV: ${{ steps.build_multidev.outputs.TERMINUS_ENV }}
+      run: |
+        # Authenticate Terminus again just in case
+        terminus -n auth:login --machine-token="$TERMINUS_TOKEN"
+
+        # Upload report
+        terminus rsync .ci/test/visual-regression/playwright-report/ "$TERMINUS_SITE.$TERMINUS_ENV:files/vrt-report/"
+
+        report_url="https://$TERMINUS_ENV-$TERMINUS_SITE.pantheonsite.io/sites/default/files/vrt-report/index.html"
+        echo "VRT_REPORT_URL=$report_url" >> "$GITHUB_OUTPUT"
+
+    - name: Notify Jira of VRT Failure
+      if: steps.vrt.outcome == 'failure' && steps.jira_key.outputs.ISSUE_KEY != ''
+      env:
+        JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+        JIRA_USER: ${{ secrets.JIRA_USER }}
+        JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+        ISSUE_KEY: ${{ steps.jira_key.outputs.ISSUE_KEY }}
+        MESSAGE: "❌ Visual Regression Tests Failed."
+        LINK_TEXT: "View Report"
+        LINK_URL: ${{ steps.vrt_report.outputs.VRT_REPORT_URL }}
+      run: |
+        chmod +x .ci/scripts/notify_jira.sh
+        ./.ci/scripts/notify_jira.sh
+
+    - name: Fail Job if VRT Failed
+      if: steps.vrt.outcome == 'failure'
+      run: exit 1
+
+    - name: Notify Jira of Success
+      if: success() && steps.jira_key.outputs.ISSUE_KEY != ''
+      env:
+        JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+        JIRA_USER: ${{ secrets.JIRA_USER }}
+        JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+        ISSUE_KEY: ${{ steps.jira_key.outputs.ISSUE_KEY }}
+        MESSAGE: "✅ PR Build & Tests Passed!"
+        LINK_TEXT: "View Action"
+        LINK_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      run: |
+        chmod +x .ci/scripts/notify_jira.sh
+        ./.ci/scripts/notify_jira.sh
+
+    - name: Notify Jira of Failure
+      if: failure() && steps.jira_key.outputs.ISSUE_KEY != ''
+      env:
+        JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+        JIRA_USER: ${{ secrets.JIRA_USER }}
+        JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+        ISSUE_KEY: ${{ steps.jira_key.outputs.ISSUE_KEY }}
+        MESSAGE: "❌ PR Build Failed."
+        LINK_TEXT: "View Action"
+        LINK_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      run: |
+        chmod +x .ci/scripts/notify_jira.sh
+        ./.ci/scripts/notify_jira.sh
+
+    - name: Notify Slack
+      if: always()
+      uses: slackapi/slack-github-action@v1.24.0
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+      with:
+        payload: |
+          {
+            "text": "PR Build ${{ job.status }}: ${{ github.event.pull_request.title }} (<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>)"
+          }
