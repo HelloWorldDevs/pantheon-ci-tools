@@ -82,5 +82,11 @@ if [ "$HTTP_STATUS" -eq 201 ]; then
   echo "✅ Posted to Jira issue ${ISSUE_KEY}"
 else
   echo "⚠️ Failed to post to Jira. HTTP Status: ${HTTP_STATUS}"
-  exit 1
+  echo "Response body (if any):"
+  # If we captured output, we could show it here, but curl -o /dev/null suppressed it.
+  # For debugging, you might want to remove -o /dev/null in the future.
+  
+  # We exit with 0 (success) to avoid failing the entire CI pipeline
+  # just because a notification failed.
+  exit 0
 fi
