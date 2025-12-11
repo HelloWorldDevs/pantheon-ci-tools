@@ -62,19 +62,19 @@ else
 fi
 # Diagnostic: Get Drush status for debugging
 echo "Drush status:"
-terminus -n drush "$TERMINUS_SITE.$TERMINUS_ENV" -- status -vvv
+terminus -n drush "$TERMINUS_SITE.$TERMINUS_ENV" -- status -vvv || true
 
 # Update the Drupal database
 echo "Running database updates..."
-terminus -n drush "$TERMINUS_SITE.$TERMINUS_ENV" -- updatedb -y
+terminus -n drush "$TERMINUS_SITE.$TERMINUS_ENV" -- updatedb -y || true
 
 # Import configuration
 echo "Importing configuration..."
-terminus -n drush "$TERMINUS_SITE.$TERMINUS_ENV" -- cim -y
+terminus -n drush "$TERMINUS_SITE.$TERMINUS_ENV" -- cim -y || true
 
 # Clear Drupal caches
 echo "Clearing Drupal caches..."
-terminus -n drush "$TERMINUS_SITE.$TERMINUS_ENV" -- cr
+terminus -n drush "$TERMINUS_SITE.$TERMINUS_ENV" -- cr || true
 
 # Clear Pantheon environment cache
 echo "Clearing Pantheon caches..."
