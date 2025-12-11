@@ -57,6 +57,11 @@ jobs:
         git config --global user.email "actions@github.com"
         git config --global user.name "GitHub Actions"
 
+    - name: Add SSH Key
+      uses: webfactory/ssh-agent@v0.9.0
+      with:
+        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
     - name: Run Multidev build script
       id: build_multidev
       env:
@@ -130,10 +135,10 @@ jobs:
       run: |
         # Authenticate Terminus again just in case
         terminus -n auth:login --machine-token="$TERMINUS_TOKEN"
-        
+
         # Upload report
         terminus rsync .ci/test/visual-regression/playwright-report/ "$TERMINUS_SITE.$TERMINUS_ENV:files/vrt-report/"
-        
+
         report_url="https://$TERMINUS_ENV-$TERMINUS_SITE.pantheonsite.io/sites/default/files/vrt-report/index.html"
         echo "VRT_REPORT_URL=$report_url" >> "$GITHUB_OUTPUT"
 

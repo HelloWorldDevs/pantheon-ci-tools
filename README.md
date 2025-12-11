@@ -43,6 +43,7 @@ composer require --dev helloworlddevs/pantheon-ci-tools
 ### Running Tests Locally
 
 1. Run tests:
+
 ```bash
 ./ci/test/visual-regression/run-playwright
 ```
@@ -50,6 +51,7 @@ composer require --dev helloworlddevs/pantheon-ci-tools
 ### Configuration
 
 Customize visual testing in `playwright.config.js`:
+
 - Adjust viewport sizes
 - Set thresholds for pixel differences
 - Configure test timeouts
@@ -72,6 +74,7 @@ Set these in your CI environment:
 PANTHEON_SITE=your-site-name
 TERMINUS_TOKEN=your-terminus-token
 GITHUB_TOKEN=your-github-token
+SSH_PRIVATE_KEY=your-ssh-private-key-for-pantheon
 
 # Optional (for Jira integration)
 JIRA_BASE_URL=https://your-domain.atlassian.net
@@ -129,6 +132,7 @@ php test_local_installer.php
 ```
 
 This will:
+
 - Create a `sampleoutput/` directory with a mock Drupal project
 - Copy `lando-test.yml` as the sample `.lando.yml` file
 - Run your local installer code directly (not via Composer)
@@ -165,6 +169,7 @@ composer install
 #### What Gets Installed
 
 The installer will:
+
 - Copy CI configuration files (`.circleci/`, `.ci/`, `.github/`)
 - Install Lando scripts (`lando/scripts/dev-config.sh`, `config-safety-check.sh`)
 - Add tooling commands to `.lando.yml` (`dev-config`, `config-check`, `safe-export`)
