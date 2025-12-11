@@ -68,6 +68,10 @@ terminus -n drush "$TERMINUS_SITE.$TERMINUS_ENV" -- status -vvv
 echo "Running database updates..."
 terminus -n drush "$TERMINUS_SITE.$TERMINUS_ENV" -- updatedb -y
 
+# Import configuration
+echo "Importing configuration..."
+terminus -n drush "$TERMINUS_SITE.$TERMINUS_ENV" -- cim -y
+
 # Clear Drupal caches
 echo "Clearing Drupal caches..."
 terminus -n drush "$TERMINUS_SITE.$TERMINUS_ENV" -- cr

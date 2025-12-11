@@ -40,6 +40,18 @@ jobs:
         default_branch="${{ github.event.repository.default_branch }}"
         echo "DEFAULT_BRANCH=$default_branch" >> "$GITHUB_ENV"
 
+    - name: Extract Jira Key
+      id: jira_key
+      run: |
+        title="${{ github.event.pull_request.title }}"
+        branch="${{ github.event.pull_request.head.ref }}"
+        # Regex to find key like PROJ-123
+        if [[ "$title" =~ ([A-Z]+-[0-9]+) ]]; then
+          echo "ISSUE_KEY=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+        elif [[ "$branch" =~ ([A-Z]+-[0-9]+) ]]; then
+          echo "ISSUE_KEY=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Git identity configuration
       run: |
         git config --global user.email "actions@github.com"
@@ -89,3 +101,96 @@ jobs:
       run: |
         chmod +x .ci/scripts/post_multidev_url.sh
         ./.ci/scripts/post_multidev_url.sh
+
+    - name: Setup Node.js for VRT
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Run Visual Regression Tests
+      id: vrt
+      continue-on-error: true
+      env:
+        DEV_SITE_URL: "https://dev-${{ secrets.TERMINUS_SITE }}.pantheonsite.io"
+        MULTIDEV_SITE_URL: ${{ steps.multidev_url.outputs.MULTIDEV_URL }}
+      run: |
+        cd .ci/test/visual-regression
+        if [ -f package.json ]; then npm ci; fi
+        npx playwright install --with-deps
+        chmod +x run-playwright
+        ./run-playwright
+
+    - name: Upload VRT Report to Multidev
+      if: steps.vrt.outcome == 'failure'
+      id: vrt_report
+      env:
+        TERMINUS_TOKEN: ${{ secrets.TERMINUS_TOKEN }}
+        TERMINUS_SITE: ${{ secrets.TERMINUS_SITE }}
+        TERMINUS_ENV: ${{ steps.build_multidev.outputs.TERMINUS_ENV }}
+      run: |
+        # Authenticate Terminus again just in case
+        terminus -n auth:login --machine-token="$TERMINUS_TOKEN"
+        
+        # Upload report
+        terminus rsync .ci/test/visual-regression/playwright-report/ "$TERMINUS_SITE.$TERMINUS_ENV:files/vrt-report/"
+        
+        report_url="https://$TERMINUS_ENV-$TERMINUS_SITE.pantheonsite.io/sites/default/files/vrt-report/index.html"
+        echo "VRT_REPORT_URL=$report_url" >> "$GITHUB_OUTPUT"
+
+    - name: Notify Jira of VRT Failure
+      if: steps.vrt.outcome == 'failure' && steps.jira_key.outputs.ISSUE_KEY != ''
+      env:
+        JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+        JIRA_USER: ${{ secrets.JIRA_USER }}
+        JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+        ISSUE_KEY: ${{ steps.jira_key.outputs.ISSUE_KEY }}
+        MESSAGE: "❌ Visual Regression Tests Failed."
+        LINK_TEXT: "View Report"
+        LINK_URL: ${{ steps.vrt_report.outputs.VRT_REPORT_URL }}
+      run: |
+        chmod +x .ci/scripts/notify_jira.sh
+        ./.ci/scripts/notify_jira.sh
+
+    - name: Fail Job if VRT Failed
+      if: steps.vrt.outcome == 'failure'
+      run: exit 1
+
+    - name: Notify Jira of Success
+      if: success() && steps.jira_key.outputs.ISSUE_KEY != ''
+      env:
+        JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+        JIRA_USER: ${{ secrets.JIRA_USER }}
+        JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+        ISSUE_KEY: ${{ steps.jira_key.outputs.ISSUE_KEY }}
+        MESSAGE: "✅ PR Build & Tests Passed!"
+        LINK_TEXT: "View Action"
+        LINK_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      run: |
+        chmod +x .ci/scripts/notify_jira.sh
+        ./.ci/scripts/notify_jira.sh
+
+    - name: Notify Jira of Failure
+      if: failure() && steps.jira_key.outputs.ISSUE_KEY != ''
+      env:
+        JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+        JIRA_USER: ${{ secrets.JIRA_USER }}
+        JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+        ISSUE_KEY: ${{ steps.jira_key.outputs.ISSUE_KEY }}
+        MESSAGE: "❌ PR Build Failed."
+        LINK_TEXT: "View Action"
+        LINK_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      run: |
+        chmod +x .ci/scripts/notify_jira.sh
+        ./.ci/scripts/notify_jira.sh
+
+    - name: Notify Slack
+      if: always()
+      uses: slackapi/slack-github-action@v1.24.0
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+      with:
+        payload: |
+          {
+            "text": "PR Build ${{ job.status }}: ${{ github.event.pull_request.title }} (<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>)"
+          }

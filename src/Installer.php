@@ -103,6 +103,10 @@ class Installer
             $destBase . '/.ci/scripts/post_multidev_url.sh'
         );
         $this->copyFile(
+            $sourceBase . '/scripts/notify_jira.sh',
+            $destBase . '/.ci/scripts/notify_jira.sh'
+        );
+        $this->copyFile(
             $sourceBase . '/scripts/setup_vars.sh',
             $destBase . '/.ci/scripts/setup_vars.sh'
         );
