@@ -82,7 +82,11 @@ terminus -n env:clear-cache "$TERMINUS_SITE.$TERMINUS_ENV"
 
 # Set secrets (if needed)
 echo "Setting secrets..."
-terminus -n secrets:set "$TERMINUS_SITE.$TERMINUS_ENV" token "$GITHUB_TOKEN" --file='github-secrets.json' --clear --skip-if-empty
+if terminus self:plugin:list | grep -q "terminus-secrets-plugin"; then
+  terminus -n secrets:set "$TERMINUS_SITE.$TERMINUS_ENV" token "$GITHUB_TOKEN" --file='github-secrets.json' --clear --skip-if-empty || true
+else
+  echo "Terminus Secrets Plugin not installed. Skipping secrets set."
+fi
 
 # Ensure connection mode is set to git
 echo "Setting connection mode to git..."

@@ -29,6 +29,7 @@ jobs:
     - name: Install Terminus Build Tools plugin
       run: |
         terminus self:plugin:install pantheon-systems/terminus-build-tools-plugin
+        terminus self:plugin:install pantheon-systems/terminus-secrets-plugin
 
     - name: Set Multidev environment variables
       id: env_vars
