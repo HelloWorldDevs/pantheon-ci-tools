@@ -216,7 +216,6 @@ jobs:
         - jira/notify:
             environment: development
             job_type: deployment
-            state: failed
             pipeline_id: << pipeline.id >>
             pipeline_number: << pipeline.number >>
 
