@@ -77,10 +77,18 @@ jobs:
     # [build] Handle Composer dependencies
     - run:
         name: Clear Composer Cache
-        command: composer clear-cache
+        command: |
+          if [ -f "composer.json" ]; then
+            composer clear-cache
+          fi
     - run:
         name: Installing composer dependencies
-        command: composer install --no-ansi --no-interaction --optimize-autoloader --no-progress
+        command: |
+          if [ -f "composer.json" ]; then
+            composer install --no-ansi --no-interaction --optimize-autoloader --no-progress
+          else
+            echo "No composer.json found, skipping composer install."
+          fi
     # [cache] Save Composer cache
     - save_cache:
         key: composer-cache-v1-{{ checksum "composer.lock" }}

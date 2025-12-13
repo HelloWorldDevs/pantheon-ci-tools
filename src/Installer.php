@@ -27,8 +27,12 @@ class Installer
         $this->io->write('  - Copying CI configuration files...');
         $this->copyFiles();
 
-        $configSplitInstaller = new InstallConfigSplit($this->io, $this->findProjectRoot());
-        $configSplitInstaller->install();
+        if ($this->isDrupalProject()) {
+            $configSplitInstaller = new InstallConfigSplit($this->io, $this->findProjectRoot());
+            $configSplitInstaller->install();
+        } else {
+            $this->io->write('  - Skipping Config Split installation (not a Drupal project)');
+        }
     }
 
     /**
@@ -240,5 +244,32 @@ class Installer
         $fallbackDir = getcwd();
         $this->io->write(sprintf('  - Warning: Could not determine project root, using: %s', $fallbackDir));
         return $fallbackDir;
+    }
+
+    /**
+     * Check if the project is a Drupal project
+     * 
+     * @return bool
+     */
+    protected function isDrupalProject()
+    {
+        $root = $this->findProjectRoot();
+        
+        // Check for composer.json dependencies
+        if (file_exists($root . '/composer.json')) {
+            $composerJson = json_decode(file_get_contents($root . '/composer.json'), true);
+            if (isset($composerJson['require']['drupal/core']) || 
+                isset($composerJson['require']['drupal/core-recommended']) ||
+                isset($composerJson['require']['pantheon-systems/drupal-integrations'])) {
+                return true;
+            }
+        }
+        
+        // Check for common Drupal files/directories if composer check fails or doesn't exist
+        if (file_exists($root . '/web/core') || file_exists($root . '/core') || file_exists($root . '/sites')) {
+            return true;
+        }
+        
+        return false;
     }
 }

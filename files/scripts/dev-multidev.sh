@@ -36,17 +36,38 @@ else
   echo "Creating new Multidev: $TERMINUS_ENV..."
   terminus -n build:env:create "$TERMINUS_SITE.dev" "$TERMINUS_ENV" --yes
 fi
-# Diagnostic: Get Drush status for debugging
-echo "Drush status:"
-terminus -n drush "$TERMINUS_SITE.$TERMINUS_ENV" -- status -vvv
 
-# Update the Drupal database
-echo "Running database updates..."
-terminus -n drush "$TERMINUS_SITE.$TERMINUS_ENV" -- updatedb -y
+# Detect Framework
+FRAMEWORK="drupal"
+if [ -f "wp-config.php" ] || [ -f "web/wp-config.php" ]; then
+  FRAMEWORK="wordpress"
+fi
 
-# Clear Drupal caches
-echo "Clearing Drupal caches..."
-terminus -n drush "$TERMINUS_SITE.$TERMINUS_ENV" -- cr
+if [ "$FRAMEWORK" == "drupal" ]; then
+  # Diagnostic: Get Drush status for debugging
+  echo "Drush status:"
+  terminus -n drush "$TERMINUS_SITE.$TERMINUS_ENV" -- status -vvv
+
+  # Update the Drupal database
+  echo "Running database updates..."
+  terminus -n drush "$TERMINUS_SITE.$TERMINUS_ENV" -- updatedb -y
+
+  # Clear Drupal caches
+  echo "Clearing Drupal caches..."
+  terminus -n drush "$TERMINUS_SITE.$TERMINUS_ENV" -- cr
+elif [ "$FRAMEWORK" == "wordpress" ]; then
+  # Diagnostic: Get WP-CLI info
+  echo "WP-CLI info:"
+  terminus -n wp "$TERMINUS_SITE.$TERMINUS_ENV" -- cli info
+
+  # Update the WordPress database
+  echo "Running database updates..."
+  terminus -n wp "$TERMINUS_SITE.$TERMINUS_ENV" -- core update-db
+
+  # Clear WordPress caches
+  echo "Clearing WordPress caches..."
+  terminus -n wp "$TERMINUS_SITE.$TERMINUS_ENV" -- cache flush
+fi
 
 # Clear Pantheon environment cache
 echo "Clearing Pantheon caches..."
