@@ -75,9 +75,6 @@ class InstallConfigSplit {
    */
   protected function modifyLandoFile(): bool
   {
-    // TEMP disable for now
-    return true;
-
     $filePath = rtrim($this->projectRoot, '/'). '/.lando.yml';
     $backupFile = $filePath . '.bak';
 
@@ -139,8 +136,8 @@ class InstallConfigSplit {
    */
   protected static function postPullEvents() : array {
     return [
-      'appserver: bash /app/lando/scripts/dev-config.sh disable',
-      'appserver: drush cr'
+      ['appserver' => 'bash /app/lando/scripts/dev-config.sh disable'],
+      ['appserver' => 'drush cr']
     ];
   }
 
@@ -152,8 +149,8 @@ class InstallConfigSplit {
    */
   protected static function postStartEvents() : array {
     return [
-      'appserver: echo "🔧 Setting up dev environment..."',
-      'appserver: bash /app/lando/scripts/dev-config.sh enable'
+      ['appserver' => 'echo "Setting up dev environment..."'],
+      ['appserver' => 'bash /app/lando/scripts/dev-config.sh enable']
     ];
   }
 
@@ -316,30 +313,9 @@ class InstallConfigSplit {
       // - DUMP_NULL_AS_TILDE: represents null as ~ instead of null
       // - Set inline level to 6 and use proper indentation
       $flags = Yaml::DUMP_EMPTY_ARRAY_AS_SEQUENCE | Yaml::DUMP_NULL_AS_TILDE;
-      $yamlOutput = Yaml::dump($data, 6, 2, $flags);
+      
+      return Yaml::dump($data, 6, 2, $flags);
 
-      // Post-process to remove quotes around Lando command strings
-      // First fix multiline array formatting issues - convert split array items to single lines
-      // This handles the case where YAML dumps array items as:
-      //   -
-      //     service: command
-      // And converts it to:
-      //   - service: command
-
-      // Handle multiline array items with quoted content
-      $yamlOutput = preg_replace("/^(\s+)-\s*\n(\s+)([a-zA-Z0-9_-]+:\s*'[^']*')\s*$/m", '$1- $3', $yamlOutput);
-
-      // Handle multiline array items with unquoted content  
-      $yamlOutput = preg_replace("/^(\s+)-\s*\n(\s+)([a-zA-Z0-9_-]+:\s*[^'\"\n]+)\s*$/m", '$1- $3', $yamlOutput);
-
-      // Remove quotes from any string that looks like "service: command" in array items
-      // This handles both simple commands and commands with quotes inside
-      $yamlOutput = preg_replace("/^(\s+- )['\"]([a-zA-Z0-9_-]+:\s*.*?)['\"]$/m", '$1$2', $yamlOutput);
-
-      // Handle cmd values that are quoted
-      $yamlOutput = preg_replace("/^(\s+cmd:\s*)['\"]([a-zA-Z0-9_-]+:\s*.*?)['\"]$/m", '$1$2', $yamlOutput);
-
-      return $yamlOutput;
     } catch (\Throwable $e) {
       $this->io->writeError('  - YAML dump error: '.$e->getMessage());
       return "# YAML dump failed; JSON fallback\n".json_encode($data, JSON_PRETTY_PRINT);
