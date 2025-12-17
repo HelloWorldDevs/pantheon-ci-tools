@@ -1,0 +1,194 @@
+#!/bin/bash
+set -e  # Exit on any error
+
+#
+# Visual Regression Testing Runner
+# Supports two modes:
+#   - lfs: Compare against Git LFS-stored baselines (recommended)
+#   - live: Compare DEV vs MULTIDEV environments live
+#
+
+# Variables
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+ARTIFACTS_DIR="${ARTIFACTS_FULL_DIR:-/tmp/artifacts}"
+
+# Source config file if it exists (for default URLs)
+CONFIG_FILE="$SCRIPT_DIR/vrt-config.sh"
+if [ -f "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE"
+fi
+
+# Use environment variable, or fall back to configured default
+TESTING_URL="${TESTING_URL:-$DEFAULT_TESTING_URL}"
+export TESTING_URL
+
+# Determine VRT mode from environment variable (default: lfs)
+VRT_MODE="${VRT_MODE:-lfs}"
+
+echo "=== Visual Regression Testing ==="
+echo "Mode: $VRT_MODE"
+echo "Script directory: $SCRIPT_DIR"
+echo "================================="
+
+# Ensure we're in the right directory
+cd "$SCRIPT_DIR"
+
+# Install Playwright browsers if needed
+npx playwright install chromium --with-deps 2>/dev/null || npx playwright install chromium
+
+# Find test_routes.json and export path for playwright
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+for subdir in "" "laravel" "web" "docroot" "public" "wordpress"; do
+    candidate="$PROJECT_ROOT/$subdir/test_routes.json"
+    if [ -f "$candidate" ]; then
+        export TEST_ROUTES_PATH="$candidate"
+        echo "Found test_routes.json at: $TEST_ROUTES_PATH"
+        break
+    fi
+done
+
+if [ "$VRT_MODE" = "lfs" ]; then
+    #
+    # LFS MODE: Compare against committed baselines
+    #
+    echo ""
+    echo "Running VRT in LFS mode (comparing against committed baselines)..."
+    echo ""
+
+    # Check if baseline snapshots exist
+    SNAPSHOT_DIR="./playwright-tests.spec.js-snapshots"
+    if [ ! -d "$SNAPSHOT_DIR" ] || [ -z "$(ls -A $SNAPSHOT_DIR 2>/dev/null)" ]; then
+        echo "ERROR: No baseline snapshots found in $SNAPSHOT_DIR"
+        echo ""
+        echo "To generate baselines, run:"
+        echo "  ./update-baselines"
+        echo ""
+        echo "Then commit the generated snapshots to your repository."
+        exit 1
+    fi
+
+    echo "Found baseline snapshots in $SNAPSHOT_DIR"
+    echo "Baseline count: $(find $SNAPSHOT_DIR -name '*.png' | wc -l) images"
+    echo ""
+
+    # Verify TESTING_URL is set
+    if [ -z "${TESTING_URL}" ]; then
+        echo "ERROR: TESTING_URL environment variable is not set"
+        echo "Set it to your test environment URL (e.g., https://pr-123-mysite.pantheonsite.io)"
+        exit 1
+    fi
+
+    echo "Testing URL: $TESTING_URL"
+    echo ""
+
+    # Run tests against the test environment
+    echo "Running Playwright tests..."
+    npx playwright test
+
+    TEST_EXIT_CODE=$?
+
+    if [ $TEST_EXIT_CODE -ne 0 ]; then
+        echo ""
+        echo "=========================================================="
+        echo "VRT tests failed. Visual differences detected."
+        echo "=========================================================="
+        echo ""
+        echo "Review the differences in the Playwright report."
+        echo "If the changes are intentional, update baselines with:"
+        echo "  ./update-baselines"
+        echo ""
+    else
+        echo ""
+        echo "=========================================================="
+        echo "SUCCESS: All VRT tests passed!"
+        echo "=========================================================="
+    fi
+
+elif [ "$VRT_MODE" = "live" ]; then
+    #
+    # LIVE MODE: Generate baselines from DEV, compare to MULTIDEV
+    #
+    echo ""
+    echo "Running VRT in LIVE mode (DEV vs MULTIDEV comparison)..."
+    echo ""
+
+    # Verify required environment variables
+    if [ -z "${MULTIDEV_SITE_URL}" ] || [ -z "${DEV_SITE_URL}" ]; then
+        echo "ERROR: Required environment variables are not set"
+        echo "MULTIDEV_SITE_URL: ${MULTIDEV_SITE_URL:-Not Set}"
+        echo "DEV_SITE_URL: ${DEV_SITE_URL:-Not Set}"
+        exit 1
+    fi
+
+    echo "Reference URL (DEV): $DEV_SITE_URL"
+    echo "Test URL (MULTIDEV): $MULTIDEV_SITE_URL"
+    echo ""
+
+    # Ping both environments to wake them up
+    echo "Pinging environments to wake them up..."
+    curl -sI "$MULTIDEV_SITE_URL" > /dev/null || echo "Warning: Failed to ping $MULTIDEV_SITE_URL"
+    curl -sI "$DEV_SITE_URL" > /dev/null || echo "Warning: Failed to ping $DEV_SITE_URL"
+    echo ""
+
+    # STAGE 1: Generate reference images from DEV
+    echo "========================================================="
+    echo "Step 1: Generating baseline images from DEV environment..."
+    echo "========================================================="
+
+    # Clear any existing snapshots
+    rm -rf playwright-tests.spec.js-snapshots
+
+    # Create baseline images from the reference environment
+    set +e
+    TESTING_URL=$DEV_SITE_URL npx playwright test --update-snapshots
+    set -e
+
+    echo ""
+    echo "========================================================="
+    echo "Step 2: Comparing MULTIDEV against DEV baselines..."
+    echo "========================================================="
+
+    # Run comparison tests
+    TESTING_URL=$MULTIDEV_SITE_URL npx playwright test
+    TEST_EXIT_CODE=$?
+
+    # Handle failures with retry at higher threshold
+    if [ $TEST_EXIT_CODE -ne 0 ]; then
+        echo ""
+        echo "=========================================================="
+        echo "Initial tests failed. Retrying with higher thresholds..."
+        echo "=========================================================="
+
+        TESTING_URL=$MULTIDEV_SITE_URL RETRY_WITH_HIGHER_THRESHOLD=true npx playwright test
+        RETRY_EXIT_CODE=$?
+
+        if [ $RETRY_EXIT_CODE -eq 0 ]; then
+            echo ""
+            echo "SUCCESS: Tests passed with higher thresholds."
+        else
+            echo ""
+            echo "WARNING: Tests still failed. Significant visual differences detected."
+        fi
+    else
+        echo ""
+        echo "=========================================================="
+        echo "SUCCESS: All VRT tests passed!"
+        echo "=========================================================="
+    fi
+
+else
+    echo "ERROR: Unknown VRT_MODE: $VRT_MODE"
+    echo "Valid modes: lfs, live"
+    exit 1
+fi
+
+# Copy report to artifacts directory if it exists
+if [ -d "playwright-report" ]; then
+    echo ""
+    echo "Copying test report to artifacts directory..."
+    mkdir -p "$ARTIFACTS_DIR/playwright-report"
+    cp -r playwright-report/* "$ARTIFACTS_DIR/playwright-report/" 2>/dev/null || true
+fi
+
+echo ""
+echo "VRT complete."

@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace HelloWorldDevs\PantheonCI;
+namespace HelloWorldDevs\CI;
 
 use Composer\IO\IOInterface;
 use Composer\Json\JsonManipulator;
@@ -32,7 +32,7 @@ class InstallConfigSplit {
   /**
    * @var string
    */
-  private $scriptDir = __DIR__ . '/../files/scripts/config_split';
+  private $scriptDir = __DIR__ . '/../files/framework/drupal/scripts/config_split';
 
   private $landoScripts = [
     'config-safety-check.sh',

@@ -1,0 +1,13 @@
+# Dependencies
+node_modules/
+
+# Generated config (from composer.json ci-tools settings)
+vrt-config.sh
+
+# Test artifacts
+test-results/
+playwright-report/
+screenshots/
+
+# Copied test routes (source of truth is in project root or laravel/)
+test_routes.json

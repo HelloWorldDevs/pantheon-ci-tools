@@ -1,6 +1,6 @@
 <?php
 
-namespace HelloWorldDevs\PantheonCI;
+namespace HelloWorldDevs\CI;
 
 use Composer\Composer;
 use Composer\EventDispatcher\EventSubscriberInterface;
@@ -11,45 +11,26 @@ use Composer\Script\ScriptEvents;
 
 class Plugin implements PluginInterface, EventSubscriberInterface
 {
-    /**
-     * @var Composer
-     */
-    protected $composer;
+    protected Composer $composer;
+    protected IOInterface $io;
 
-    /**
-     * @var IOInterface
-     */
-    protected $io;
-
-    /**
-     * {@inheritDoc}
-     */
-    public function activate(Composer $composer, IOInterface $io)
+    public function activate(Composer $composer, IOInterface $io): void
     {
         $this->composer = $composer;
         $this->io = $io;
     }
 
-    /**
-     * {@inheritDoc}
-     */
-    public function deactivate(Composer $composer, IOInterface $io)
+    public function deactivate(Composer $composer, IOInterface $io): void
     {
         // Nothing to do here
     }
 
-    /**
-     * {@inheritDoc}
-     */
-    public function uninstall(Composer $composer, IOInterface $io)
+    public function uninstall(Composer $composer, IOInterface $io): void
     {
         // Nothing to do here
     }
 
-    /**
-     * {@inheritDoc}
-     */
-    public static function getSubscribedEvents()
+    public static function getSubscribedEvents(): array
     {
         return [
             ScriptEvents::POST_INSTALL_CMD => 'onPostInstallUpdate',
@@ -57,23 +38,58 @@ class Plugin implements PluginInterface, EventSubscriberInterface
         ];
     }
 
-    /**
-     * Handle post install/update events
-     *
-     * @param Event $event
-     */
-    public function onPostInstallUpdate(Event $event)
+    public function onPostInstallUpdate(Event $event): void
     {
-        $this->io->write('<info>Pantheon CI Tools: Installing CI configuration files...</info>');
-        
+        $this->io->write('<info>HWD CI Tools: Installing CI configuration files...</info>');
+
         try {
-            $installer = new Installer($this->io);
+            // Get config from composer.json extra section (the Composer way)
+            $extra = $this->composer->getPackage()->getExtra();
+            $ciToolsConfig = $extra['ci-tools'] ?? null;
+
+            $installer = new Installer($this->io, $ciToolsConfig);
             $installer->install();
-            
-            $this->io->write('<info>✓ Pantheon CI Tools: Installation complete!</info>');
+
+            $this->io->write('<info>HWD CI Tools: Installation complete!</info>');
         } catch (\Exception $e) {
             $this->io->writeError(sprintf(
-                '<error>Error installing Pantheon CI Tools: %s</error>',
+                '<error>Error installing HWD CI Tools: %s</error>',
+                $e->getMessage()
+            ));
+            throw $e;
+        }
+    }
+
+    /**
+     * Static method to run installer manually via: composer ci-tools:install
+     * Use --force to overwrite existing template files
+     */
+    public static function runInstall(Event $event): void
+    {
+        $io = $event->getIO();
+        $composer = $event->getComposer();
+
+        // Check for --force argument
+        $args = $event->getArguments();
+        $force = in_array('--force', $args, true);
+
+        if ($force) {
+            $io->write('<info>HWD CI Tools: Force mode - will overwrite existing files...</info>');
+        }
+
+        $io->write('<info>HWD CI Tools: Installing CI configuration files...</info>');
+
+        try {
+            $extra = $composer->getPackage()->getExtra();
+            $ciToolsConfig = $extra['ci-tools'] ?? null;
+
+            $installer = new Installer($io, $ciToolsConfig, $force);
+            $installer->install();
+
+            $io->write('<info>HWD CI Tools: Installation complete!</info>');
+        } catch (\Exception $e) {
+            $io->writeError(sprintf(
+                '<error>Error installing HWD CI Tools: %s</error>',
                 $e->getMessage()
             ));
             throw $e;

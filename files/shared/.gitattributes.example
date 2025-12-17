@@ -1,0 +1,11 @@
+# Git LFS Configuration for VRT Baselines
+# Copy this file to .gitattributes in your project root
+# Run: git lfs install
+
+# VRT baseline images stored in Git LFS
+**/playwright-tests.spec.js-snapshots/*.png filter=lfs diff=lfs merge=lfs -text
+
+# Optional: Track other large binary files
+# *.psd filter=lfs diff=lfs merge=lfs -text
+# *.ai filter=lfs diff=lfs merge=lfs -text
+# *.zip filter=lfs diff=lfs merge=lfs -text

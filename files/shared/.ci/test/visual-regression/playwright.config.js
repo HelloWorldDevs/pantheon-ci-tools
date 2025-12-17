@@ -32,7 +32,7 @@ module.exports = defineConfig({
   retries: process.env.CI ? 1 : 0,
   /* Reporter to use */
   reporter: [
-    ["html", { outputFolder: "playwright-report" }],
+    ["html", { outputFolder: "playwright-report", open: "never" }],
     ["junit", { outputFile: "test-results/junit.xml" }],
   ],
   /* Configure projects for major browsers */

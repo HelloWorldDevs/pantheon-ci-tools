@@ -1,0 +1,113 @@
+#!/bin/bash
+set -e
+
+#
+# Update VRT Baselines
+# Generates baseline screenshots using Docker for Linux consistency
+# This ensures baselines match what CI will generate
+#
+
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PLAYWRIGHT_VERSION="${PLAYWRIGHT_VERSION:-v1.52.0-noble}"
+SNAPSHOT_DIR="$SCRIPT_DIR/playwright-tests.spec.js-snapshots"
+
+# Source config file if it exists (for default URLs)
+CONFIG_FILE="$SCRIPT_DIR/vrt-config.sh"
+if [ -f "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE"
+fi
+
+# Use environment variable, or fall back to configured defaults
+# For update-baselines, prefer UPDATE_URL over TESTING_URL
+TESTING_URL="${TESTING_URL:-${DEFAULT_UPDATE_URL:-$DEFAULT_TESTING_URL}}"
+
+echo "=== VRT Baseline Update ==="
+echo "Script directory: $SCRIPT_DIR"
+echo "Playwright version: $PLAYWRIGHT_VERSION"
+echo "==========================="
+echo ""
+
+# Check if TESTING_URL is set
+if [ -z "${TESTING_URL}" ]; then
+    echo "ERROR: TESTING_URL environment variable is not set"
+    echo ""
+    echo "Usage:"
+    echo "  TESTING_URL=https://your-site.com ./update-baselines"
+    echo ""
+    echo "Example:"
+    echo "  TESTING_URL=https://dev-mysite.pantheonsite.io ./update-baselines"
+    echo ""
+    echo "Or configure default URLs in composer.json:"
+    echo '  "extra": { "ci-tools": { "testingUrl": "...", "updateUrl": "..." } }'
+    exit 1
+fi
+
+echo "Testing URL: $TESTING_URL"
+echo ""
+
+# Find test_routes.json in common locations
+TEST_ROUTES_FILE=""
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+for subdir in "" "laravel" "web" "docroot" "public" "wordpress"; do
+    candidate="$PROJECT_ROOT/$subdir/test_routes.json"
+    if [ -f "$candidate" ]; then
+        TEST_ROUTES_FILE="$candidate"
+        echo "Found test_routes.json at: $TEST_ROUTES_FILE"
+        break
+    fi
+done
+
+# Check if Docker is available
+if ! command -v docker &> /dev/null; then
+    echo "WARNING: Docker not found. Running locally instead."
+    echo "Note: Baselines may differ from CI if not running on Linux."
+    echo ""
+
+    cd "$SCRIPT_DIR"
+    npm ci
+    npx playwright install --with-deps
+    TESTING_URL=$TESTING_URL npx playwright test --update-snapshots
+else
+    echo "Using Docker for consistent Linux baselines..."
+    echo ""
+
+    # Build mount arguments
+    MOUNT_ARGS="-v $SCRIPT_DIR:/work"
+    ENV_ARGS="-e TESTING_URL=$TESTING_URL -e CI=true"
+    if [ -n "$TEST_ROUTES_FILE" ]; then
+        MOUNT_ARGS="$MOUNT_ARGS -v $TEST_ROUTES_FILE:/config/test_routes.json:ro"
+        ENV_ARGS="$ENV_ARGS -e TEST_ROUTES_PATH=/config/test_routes.json"
+    fi
+
+    # Run Playwright in Docker container
+    docker run --rm \
+        $MOUNT_ARGS \
+        -w /work \
+        $ENV_ARGS \
+        --network host \
+        "mcr.microsoft.com/playwright:$PLAYWRIGHT_VERSION" \
+        /bin/bash -c "npm ci && npx playwright test --update-snapshots"
+fi
+
+# Check results
+if [ -d "$SNAPSHOT_DIR" ]; then
+    SNAPSHOT_COUNT=$(find "$SNAPSHOT_DIR" -name '*.png' | wc -l)
+    echo ""
+    echo "=========================================================="
+    echo "SUCCESS: Baselines updated!"
+    echo "=========================================================="
+    echo ""
+    echo "Generated $SNAPSHOT_COUNT baseline images in:"
+    echo "  $SNAPSHOT_DIR"
+    echo ""
+    echo "Next steps:"
+    echo "  1. Review the generated images"
+    echo "  2. Stage and commit the changes:"
+    echo "     git add $SNAPSHOT_DIR"
+    echo "     git commit -m 'Update VRT baselines'"
+    echo ""
+else
+    echo ""
+    echo "ERROR: No snapshots generated. Check test output above."
+    exit 1
+fi

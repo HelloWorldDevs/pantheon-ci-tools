@@ -1,24 +1,27 @@
 {
   "name": "helloworlddevs/pantheon-ci-tools",
-  "description": "Pantheon CI/CD pipeline configuration",
+  "description": "Multi-platform CI/CD pipeline tools for Pantheon, Upsun, and WP Engine",
   "type": "composer-plugin",
   "license": "MIT",
   "require": {
-    "php": ">=7.4",
+    "php": ">=8.1",
     "composer-plugin-api": "^2.0",
     "symfony/yaml": "^5.0|^6.0|^7.0"
   },
   "require-dev": {
-    "phpunit/phpunit": "^9.0",
+    "phpunit/phpunit": "^9.0|^10.0",
     "composer/composer": "^2.0"
   },
   "autoload": {
     "psr-4": {
-      "HelloWorldDevs\\PantheonCI\\": "src/"
+      "HelloWorldDevs\\CI\\": "src/"
     }
   },
+  "scripts": {
+    "ci-tools:install": "HelloWorldDevs\\CI\\Plugin::runInstall"
+  },
   "extra": {
-    "class": "HelloWorldDevs\\PantheonCI\\Plugin",
+    "class": "HelloWorldDevs\\CI\\Plugin",
     "plugin-modifies-install-path": true
   },
   "minimum-stability": "dev",

@@ -1,0 +1,107 @@
+name: Visual Regression Tests
+
+on:
+  pull_request:
+    branches: [main, develop, master]
+  workflow_dispatch:
+    inputs:
+      testing_url:
+        description: 'URL to test against'
+        required: true
+        type: string
+
+jobs:
+  vrt:
+    name: Visual Regression Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout with LFS
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: .ci/test/visual-regression/package-lock.json
+
+      - name: Install dependencies
+        working-directory: .ci/test/visual-regression
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: .ci/test/visual-regression
+        run: npx playwright install --with-deps chromium
+
+      - name: Verify baseline snapshots exist
+        working-directory: .ci/test/visual-regression
+        run: |
+          if [ ! -d "playwright-tests.spec.js-snapshots" ]; then
+            echo "::error::No baseline snapshots found. Generate baselines first with ./update-baselines"
+            exit 1
+          fi
+          SNAPSHOT_COUNT=$(find playwright-tests.spec.js-snapshots -name '*.png' | wc -l)
+          echo "Found $SNAPSHOT_COUNT baseline images"
+
+      - name: Determine testing URL
+        id: url
+        run: |
+          if [ -n "${{ github.event.inputs.testing_url }}" ]; then
+            echo "url=${{ github.event.inputs.testing_url }}" >> $GITHUB_OUTPUT
+          elif [ -n "${{ secrets.TESTING_URL }}" ]; then
+            echo "url=${{ secrets.TESTING_URL }}" >> $GITHUB_OUTPUT
+          else
+            echo "::error::No testing URL provided. Set TESTING_URL secret or use workflow_dispatch."
+            exit 1
+          fi
+
+      - name: Run Visual Regression Tests
+        working-directory: .ci/test/visual-regression
+        run: ./run-playwright
+        env:
+          VRT_MODE: lfs
+          TESTING_URL: ${{ steps.url.outputs.url }}
+
+      - name: Upload Playwright Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: .ci/test/visual-regression/playwright-report/
+          retention-days: 30
+
+      - name: Upload Test Results
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-results
+          path: .ci/test/visual-regression/test-results/
+          retention-days: 30
+
+      - name: Comment on PR with results
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const run_url = `${process.env.GITHUB_SERVER_URL}/${owner}/${repo}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number,
+              body: `## Visual Regression Tests Failed
+
+            Visual differences were detected between the baseline and this PR.
+
+            [View the Playwright Report](${run_url}) to see the differences.
+
+            If these changes are intentional:
+            1. Run \`./update-baselines\` locally
+            2. Commit the updated snapshots
+            3. Push to update this PR`
+            });

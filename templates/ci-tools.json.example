@@ -1,0 +1,13 @@
+{
+  "$schema": "https://helloworlddevs.github.io/pantheon-ci-tools/schema.json",
+  "platform": null,
+  "framework": null,
+  "options": {
+    "skipVRT": false,
+    "skipJiraIntegration": false,
+    "skipCircleCI": false
+  },
+  "excludeFiles": [],
+  "includeFiles": {},
+  "variables": {}
+}

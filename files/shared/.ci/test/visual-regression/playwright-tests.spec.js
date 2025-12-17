@@ -14,7 +14,7 @@ const path = require("path");
 // Set up environment variables with defaults
 const ENV = {
   // Testing URL - try to get from environment variables or use Lando URL
-  TESTING_URL: process.env.DEV_SITE_URL || "http://localhost:3000",
+  TESTING_URL: process.env.TESTING_URL || process.env.DEV_SITE_URL || "http://localhost:3000",
   // Artifacts directory for saving screenshots
   ARTIFACTS_DIR: process.env.ARTIFACTS_DIR || path.join(process.cwd(), "test-results"),
   // CI info
@@ -63,6 +63,14 @@ console.log(
 );
 
 function resolveTestRoutesPath() {
+  // If TEST_ROUTES_PATH is set and points to a file, use it directly
+  if (process.env.TEST_ROUTES_PATH && fs.existsSync(process.env.TEST_ROUTES_PATH)) {
+    const stats = fs.statSync(process.env.TEST_ROUTES_PATH);
+    if (stats.isFile()) {
+      return process.env.TEST_ROUTES_PATH;
+    }
+  }
+
   const candidateRoots = [
     process.env.TEST_ROUTES_PATH,
     process.env.CI_PROJECT_DIR,
@@ -75,19 +83,26 @@ function resolveTestRoutesPath() {
     new Set(candidateRoots.map((candidate) => path.resolve(candidate)))
   );
 
+  // Common framework subdirectories to check
+  const frameworkDirs = ['', 'laravel', 'web', 'docroot', 'public', 'wordpress'];
+
   for (const root of normalizedRoots) {
-    const projectTestRoutes = path.join(root, "test_routes.json");
-    if (fs.existsSync(projectTestRoutes)) {
-      return projectTestRoutes;
+    for (const subdir of frameworkDirs) {
+      const projectTestRoutes = path.join(root, subdir, "test_routes.json");
+      if (fs.existsSync(projectTestRoutes)) {
+        return projectTestRoutes;
+      }
     }
   }
 
-  // Try ascending from the current directory as a fallback.
+  // Try ascending from the current directory as a fallback, also checking framework subdirs
   let currentDir = path.resolve(__dirname);
   for (let depth = 0; depth <= 6; depth++) {
-    const testPath = path.join(currentDir, "test_routes.json");
-    if (fs.existsSync(testPath)) {
-      return testPath;
+    for (const subdir of frameworkDirs) {
+      const testPath = path.join(currentDir, subdir, "test_routes.json");
+      if (fs.existsSync(testPath)) {
+        return testPath;
+      }
     }
 
     const parentDir = path.dirname(currentDir);
