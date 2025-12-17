@@ -2,12 +2,11 @@ name: Visual Regression Tests
 
 on:
   pull_request:
-    branches: [main, develop, master]
   workflow_dispatch:
     inputs:
       testing_url:
-        description: 'URL to test against'
-        required: true
+        description: 'URL to test against (optional, uses composer.json default if not set)'
+        required: false
         type: string
 
 jobs:
@@ -20,6 +19,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           lfs: true
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+
+      - name: Generate VRT config from composer.json
+        working-directory: laravel
+        run: composer install --no-interaction --prefer-dist
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -46,24 +54,12 @@ jobs:
           SNAPSHOT_COUNT=$(find playwright-tests.spec.js-snapshots -name '*.png' | wc -l)
           echo "Found $SNAPSHOT_COUNT baseline images"
 
-      - name: Determine testing URL
-        id: url
-        run: |
-          if [ -n "${{ github.event.inputs.testing_url }}" ]; then
-            echo "url=${{ github.event.inputs.testing_url }}" >> $GITHUB_OUTPUT
-          elif [ -n "${{ secrets.TESTING_URL }}" ]; then
-            echo "url=${{ secrets.TESTING_URL }}" >> $GITHUB_OUTPUT
-          else
-            echo "::error::No testing URL provided. Set TESTING_URL secret or use workflow_dispatch."
-            exit 1
-          fi
-
       - name: Run Visual Regression Tests
         working-directory: .ci/test/visual-regression
         run: ./run-playwright
         env:
           VRT_MODE: lfs
-          TESTING_URL: ${{ steps.url.outputs.url }}
+          TESTING_URL: ${{ github.event.inputs.testing_url || secrets.TESTING_URL || '' }}
 
       - name: Upload Playwright Report
         uses: actions/upload-artifact@v4
