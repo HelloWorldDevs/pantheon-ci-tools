@@ -104,12 +104,17 @@ class InstallConfigSplit {
     $yaml['events']['post-start'] = self::mergeUnique($yaml['events']['post-start'], self::postStartEvents());
     $yaml['events']['post-pull'] = self::mergeUnique($yaml['events']['post-pull'], self::postPullEvents());
 
-    // Tooling: overwrite existing command definitions with new ones (safer for updates).
+    // Standardize tooling commands.
     foreach (self::newLandoCommands() as $cmdName => $definition) {
       $yaml['tooling'][$cmdName] = $definition;
     }
 
-    $yamlString = $this->dumpYaml($yaml);
+    try {
+      $yamlString = $this->dumpYaml($yaml);
+    } catch (\RuntimeException $e) {
+      $this->io->writeError(sprintf('  - Error: failed to dump YAML for %s: %s', $filePath, $e->getMessage()));
+      return false;
+    }
     if (file_put_contents($filePath, $yamlString) === false) {
       $this->io->writeError(sprintf('  - Error: failed to write changes to %s', $filePath));
       if (!\file_put_contents($filePath, file_get_contents($backupFile))) {
@@ -231,9 +236,6 @@ class InstallConfigSplit {
    *
    * This only mutates composer.json; it does NOT run Composer. Safer for scripts.
    *
-   * @param string $package     e.g. 'drupal/config_split'
-   * @param string $constraint  e.g. '^2.0'
-   * @param string $projectRoot Absolute path to the project root containing composer.json
    * @return bool True if package is installed or already exists, false if not
    */
   protected function require_package(): bool
@@ -285,11 +287,17 @@ class InstallConfigSplit {
 
   /**
    * Parse YAML file with PECL yaml or Symfony Yaml as fallback.
+   *
+   * @param string $filePath The path to the YAML file to parse
+   * @return ?array The parsed YAML data, or null if parsing fails
    */
   private function parseYamlFile(string $filePath): ?array {
     try {
       if (\function_exists('yaml_parse_file')) {
-        $data = \yaml_parse_file($filePath);
+        // ext-yaml is optional; calling via variable avoids static analysis errors
+        // while still honoring the runtime function_exists() guard.
+        $parser = 'yaml_parse_file';
+        $data = $parser($filePath);
         return \is_array($data) ? $data : null;
       }
       return Yaml::parseFile($filePath);
@@ -301,60 +309,100 @@ class InstallConfigSplit {
 
   /**
    * Dump YAML using available implementation.
+   *
+   * @param array $data The data to dump
+   * @return string The YAML dump
+   * @throws \RuntimeException If dump fails.
    */
   private function dumpYaml(array $data): string {
     try {
-      if (\function_exists('yaml_emit')) {
-        return (string) \yaml_emit($data);
-      }
-
       // Use specific flags to ensure proper Lando formatting:
-      // - DUMP_EMPTY_ARRAY_AS_SEQUENCE: ensures arrays are formatted as YAML sequences  
+      // - DUMP_EMPTY_ARRAY_AS_SEQUENCE: ensures empty arrays are formatted as YAML sequences
       // - DUMP_NULL_AS_TILDE: represents null as ~ instead of null
-      // - Set inline level to 6 and use proper indentation
-      $flags = Yaml::DUMP_EMPTY_ARRAY_AS_SEQUENCE | Yaml::DUMP_NULL_AS_TILDE;
+      // - DUMP_MULTI_LINE_LITERAL_BLOCK: creates readable block scalars for multi-line strings
+      // - Set inline level to 10 to avoid excessive inline folding
+      $flags = Yaml::DUMP_EMPTY_ARRAY_AS_SEQUENCE | Yaml::DUMP_NULL_AS_TILDE | Yaml::DUMP_MULTI_LINE_LITERAL_BLOCK;
       
-      return Yaml::dump($data, 6, 2, $flags);
+      $yaml = Yaml::dump($data, 10, 2, $flags);
+
+      $yaml = preg_replace_callback('/^(\s*)-\n(\s+)(?=\w+:)/m', function($matches) {
+        $dashIndent = $matches[1];
+        $contentIndent = $matches[2];
+        
+        if (strlen($contentIndent) === strlen($dashIndent) + 2) {
+            return $dashIndent . '- ';
+        }
+        return $matches[0];
+      }, $yaml);
+
+      return $yaml;
 
     } catch (\Throwable $e) {
-      $this->io->writeError('  - YAML dump error: '.$e->getMessage());
-      return "# YAML dump failed; JSON fallback\n".json_encode($data, JSON_PRETTY_PRINT);
+      throw new \RuntimeException('YAML dump error: ' . $e->getMessage(), 0, $e);
     }
   }
 
   /**
    * Merge two indexed arrays preserving order & uniqueness.
+   * 
+   * @param array $existing The existing array configuration events
+   * @param array $additions The new array configuration events
+   * @return array The merged array configuration events
    */
   private static function mergeUnique(array $existing, array $additions): array {
-    $result = $existing;
-    $signatures = [];
+    $result = [];
+    $seen = [];
 
-    // Build signature list from existing.
-    foreach ($existing as $item) {
-      $signatures[] = self::eventSignature($item);
-    }
-
-    foreach ($additions as $item) {
+    foreach (array_merge($existing, $additions) as $item) {
       $sig = self::eventSignature($item);
-      if (!in_array($sig, $signatures, true)) {
+      if (!isset($seen[$sig])) {
         $result[] = $item;
-        $signatures[] = $sig;
+        $seen[$sig] = true;
       }
     }
+
     return $result;
   }
 
   /**
    * Normalize an event entry (string or mapping) to a signature for uniqueness.
    *
-   * @param mixed $item
+   * @param mixed $item The event entry (string or mapping)
+   * @return string The normalized event signature
    */
   private static function eventSignature($item): string {
     if (is_array($item)) {
-      // Sort keys for stable signature.
       ksort($item);
+      // Normalize common command variants so equivalent steps don't accumulate
+      // across tool versions (e.g., emoji vs non-emoji dev setup messages).
+      foreach ($item as $k => $v) {
+        if (is_string($v)) {
+          $item[$k] = self::normalizeEventCommand($v);
+        }
+      }
       return 'A:'.json_encode($item, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     }
-    return 'S:'.(string)$item;
+    return 'S:'.self::normalizeEventCommand((string) $item);
+  }
+
+  /**
+   * Normalize command strings to avoid duplicate variants.
+   *
+   * @param string $cmd The command string to normalize
+   * @return string The normalized command string
+   */
+  private static function normalizeEventCommand(string $cmd): string {
+    $cmd = trim($cmd);
+
+    // Treat these as equivalent:
+    // - echo "🔧 Setting up dev environment..."
+    // - echo "Setting up dev environment..."
+    $cmd = preg_replace(
+      '/^echo\\s+["\\\']?(?:🔧\\s+)?Setting up dev environment\\.\\.\\.["\\\']?$/u',
+      'echo "Setting up dev environment..."',
+      $cmd
+    ) ?? $cmd;
+
+    return $cmd;
   }
 }
