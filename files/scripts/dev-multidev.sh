@@ -44,6 +44,12 @@ if [ -f "wp-config.php" ] || [ -f "web/wp-config.php" ]; then
 fi
 
 if [ "$FRAMEWORK" == "drupal" ]; then
+  # Clear compiled container cache BEFORE any drush commands
+  echo "Clearing cached container to force rebuild with new services.yml..."
+  terminus -n env:clear-cache "$TERMINUS_SITE.$TERMINUS_ENV"
+  # Also truncate container cache tables directly to be sure
+  terminus -n drush "$TERMINUS_SITE.$TERMINUS_ENV" -- sql:query "TRUNCATE cache_container;" || echo "Could not truncate cache_container, continuing..."
+
   # Diagnostic: Get Drush status for debugging
   echo "Drush status:"
   terminus -n drush "$TERMINUS_SITE.$TERMINUS_ENV" -- status -vvv
