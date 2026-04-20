@@ -19,9 +19,17 @@ jobs:
     # Only run if this is related to a PR (not a regular issue)
 
     if: |
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request) ||
-      github.event_name == 'pull_request_review_comment' ||
-      github.event_name == 'pull_request_review'
+      (
+        (github.event_name == 'issue_comment' && github.event.issue.pull_request) ||
+        github.event_name == 'pull_request_review_comment' ||
+        github.event_name == 'pull_request_review'
+      ) &&
+      github.event.sender.type != 'Bot' &&
+      github.event.sender.type != 'App' &&
+      github.actor != 'github-actions[bot]' &&
+      github.actor != 'Copilot' &&
+      github.actor != 'copilot-pull-request-reviewer[bot]' &&
+      !contains(github.actor, 'copilot')
     steps:
       - name: Debug event info
         run: |
@@ -49,6 +57,7 @@ jobs:
             
             let prUrl, commentBody, commentAuthor;
             let pullRequest = null;
+            let commentAuthorType = 'Unknown';
             
             // Extract info based on event type
             if (eventName === 'issue_comment') {
@@ -57,6 +66,7 @@ jobs:
               prUrl = context.payload.issue.pull_request.url;
               commentBody = context.payload.comment.body;
               commentAuthor = context.payload.comment.user.login;
+              commentAuthorType = context.payload.comment.user.type || 'Unknown';
               
               // Fetch the PR details
               const prResponse = await fetch(prUrl, {
@@ -71,6 +81,7 @@ jobs:
               const pullNumber = context.payload.pull_request.number;
               commentBody = context.payload.comment.body;
               commentAuthor = context.payload.comment.user.login;
+              commentAuthorType = context.payload.comment.user.type || 'Unknown';
               
               // Get PR details
               pullRequest = await github.rest.pulls.get({
@@ -86,6 +97,7 @@ jobs:
               const pullNumber = context.payload.pull_request.number;
               commentBody = context.payload.review.body || `${context.payload.review.state} review`;
               commentAuthor = context.payload.review.user.login;
+              commentAuthorType = context.payload.review.user.type || 'Unknown';
               
               // Get PR details
               pullRequest = await github.rest.pulls.get({
@@ -109,7 +121,16 @@ jobs:
             console.log(`PR Title: ${title}`);
             console.log(`PR Branch: ${branch}`);
             console.log(`Comment by: ${commentAuthor}`);
+            console.log(`Comment author type: ${commentAuthorType}`);
             console.log(`Comment body: ${commentBody}`);
+
+            // Skip automated actors to avoid flooding Jira comments.
+            const actor = (commentAuthor || '').toLowerCase();
+            if (commentAuthorType === 'Bot' || actor.includes('copilot') || actor === 'github-actions[bot]') {
+              console.log(`Skipping automated comment from ${commentAuthor} (${commentAuthorType}).`);
+              core.setOutput('issue_key', '');
+              return;
+            }
             
             // Try to find Jira issue key from PR title, body, or branch
             let issueKey = null;
