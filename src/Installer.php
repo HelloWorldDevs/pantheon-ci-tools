@@ -166,7 +166,7 @@ class Installer
      */
     protected function resolveCiProvider(): string
     {
-        $default = 'circleci';
+        $default = 'github';
         $projectRoot = $this->findProjectRoot();
         $composerFile = $projectRoot . '/composer.json';
 
@@ -179,19 +179,22 @@ class Installer
             return $default;
         }
 
-        $provider = $composerJson['extra']['pantheon-ci-tools']['ci_provider'] ?? $default;
-        $provider = strtolower((string) $provider);
+        $configuredProvider = strtolower((string) ($composerJson['extra']['pantheon-ci-tools']['ci_provider'] ?? ''));
 
-        if (!in_array($provider, ['circleci', 'github', 'both'], true)) {
-            $this->io->write(sprintf(
-                '  - Warning: Unsupported ci_provider "%s". Falling back to %s.',
-                $provider,
-                $default
-            ));
-            return $default;
+        // GitHub is the new default. Only use ci_provider to force CircleCI.
+        if ($configuredProvider === 'circleci') {
+            return 'circleci';
         }
 
-        return $provider;
+        if ($configuredProvider !== '' && $configuredProvider !== 'circleci') {
+            $this->io->write(sprintf(
+                '  - Warning: Unsupported ci_provider "%s". Use "circleci" to force CircleCI. Falling back to %s.',
+                $configuredProvider,
+                $default
+            ));
+        }
+
+        return $default;
     }
     
     /**

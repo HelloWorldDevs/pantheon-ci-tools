@@ -26,24 +26,22 @@ composer require --dev helloworlddevs/pantheon-ci-tools
 
 ### CI Provider Selection
 
-CircleCI remains the default so existing projects keep working unchanged.
+GitHub Actions is now the default install mode.
 
-To opt into GitHub Actions (or install both), set this in your project `composer.json`:
+Set this in your project `composer.json` only if you need legacy CircleCI templates:
 
 ```json
 {
   "extra": {
     "pantheon-ci-tools": {
-      "ci_provider": "github"
+      "ci_provider": "circleci"
     }
   }
 }
 ```
 
-Supported values:
-- `circleci` (default)
-- `github`
-- `both`
+Supported value:
+- `circleci` (optional override)
 
 ## Visual Regression Testing
 
@@ -77,22 +75,22 @@ Customize visual testing in `playwright.config.js`:
 
 ## CI/CD Pipeline
 
-### CircleCI (default)
+### GitHub Actions (default)
 
-The default install sets up a CircleCI pipeline that:
+By default, the installer adds workflows for:
+
+1. PR multidev deploy + visual regression testing
+2. PR comment syncing to Jira
+3. Multidev cleanup when PRs are merged
+
+### CircleCI (optional override)
+
+When `ci_provider` is set to `circleci`, the installer sets up the CircleCI pipeline that:
 
 1. Runs on every PR
 2. Deploys to a multidev environment
 3. Runs visual regression tests
 4. Reports results back to GitHub
-
-### GitHub Actions (opt-in)
-
-When `ci_provider` is set to `github` (or `both`), the installer also adds workflows for:
-
-1. PR multidev deploy + visual regression testing
-2. PR comment syncing to Jira
-3. Multidev cleanup when PRs are merged
 
 ### Required Environment Variables
 
