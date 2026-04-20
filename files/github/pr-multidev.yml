@@ -43,6 +43,11 @@ jobs:
           TERMINUS_ALLOW_UNSUPPORTED_NEWER_PHP: 1
         run: terminus self:plugin:install pantheon-systems/terminus-secrets-plugin --yes
 
+      - name: Install Terminus Build Tools Plugin
+        env:
+          TERMINUS_ALLOW_UNSUPPORTED_NEWER_PHP: 1
+        run: terminus self:plugin:install pantheon-systems/terminus-build-tools-plugin --yes
+
       - name: Resolve CI variables
         run: |
           resolved_site="${TERMINUS_SITE:-}"
