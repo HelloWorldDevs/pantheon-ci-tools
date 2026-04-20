@@ -24,8 +24,10 @@ class Installer
      */
     public function install()
     {
+        $provider = $this->resolveCiProvider();
+        $this->io->write(sprintf('  - CI provider mode: %s', $provider));
         $this->io->write('  - Copying CI configuration files...');
-        $this->copyFiles();
+        $this->copyFiles($provider);
 
         if ($this->isDrupalProject()) {
             $configSplitInstaller = new InstallConfigSplit($this->io, $this->findProjectRoot());
@@ -40,7 +42,7 @@ class Installer
      *
      * @return void
      */
-    protected function copyFiles()
+    protected function copyFiles(string $provider)
     {
         // Get the correct source base (this package)
         $sourceBase = dirname(__DIR__) . '/files';
@@ -50,24 +52,44 @@ class Installer
         $destBase = $this->findProjectRoot();
         $this->io->write(sprintf('  - Destination directory: %s', $destBase));
         
+        $installCircleCI = in_array($provider, ['circleci', 'both'], true);
+        $installGitHub = in_array($provider, ['github', 'both'], true);
+
         // Ensure destination directories exist
-        $this->ensureDirectoryExists($destBase . '/.circleci');
+        if ($installCircleCI) {
+            $this->ensureDirectoryExists($destBase . '/.circleci');
+        }
+        if ($installGitHub) {
+            $this->ensureDirectoryExists($destBase . '/.github/workflows');
+        }
         $this->ensureDirectoryExists($destBase . '/.ci/test/visual-regression');
         $this->ensureDirectoryExists($destBase . '/.ci/scripts');
-        
-        // Copy CircleCI config
-        $this->copyFile(
-            $sourceBase . '/.circleci/config.yml',
-            $destBase . '/.circleci/config.yml'
-        );
+
+        // Copy CircleCI config only when selected.
+        if ($installCircleCI) {
+            $this->copyFile(
+                $sourceBase . '/.circleci/config.yml',
+                $destBase . '/.circleci/config.yml'
+            );
+        }
 
         // Skip .env.example copying for now
         // File will be added in a future version if needed
 
-        $this->copyFile(
-            $sourceBase . '/github/delete-multidev-on-merge.yml',
-            $destBase . '/.github/workflows/delete-multidev-on-merge.yml'
-        );
+        if ($installGitHub) {
+            $this->copyFile(
+                $sourceBase . '/github/delete-multidev-on-merge.yml',
+                $destBase . '/.github/workflows/delete-multidev-on-merge.yml'
+            );
+            $this->copyFile(
+                $sourceBase . '/github/pr-comments-to-jira.yml',
+                $destBase . '/.github/workflows/pr-comments-to-jira.yml'
+            );
+            $this->copyFile(
+                $sourceBase . '/github/pr-multidev.yml',
+                $destBase . '/.github/workflows/pr-multidev.yml'
+            );
+        }
 
         // Copy test_routes.json only if it doesn't already exist in the destination
         $testRoutesDest = $destBase . '/test_routes.json';
@@ -79,21 +101,18 @@ class Installer
         } else {
             $this->io->write(sprintf('  - Skipped copying test_routes.json, file already exists at: %s', str_replace(getcwd() . '/', '', $testRoutesDest)));
         }
-        // Copy env_vars.sh only if it doesn't already exist in the destination
-        $envVarsDest = $destBase . '/.circleci/env_vars.sh';
-        if (!file_exists($envVarsDest)) {
-            $this->copyFile(
-                $sourceBase . '/.circleci/env_vars.sh',
-                $envVarsDest
-            );
-        } else {
-            $this->io->write(sprintf('  - Skipped copying env_vars.sh, file already exists at: %s', str_replace(getcwd() . '/', '', $envVarsDest)));
+        // Copy env_vars.sh only when CircleCI is selected and file doesn't already exist.
+        if ($installCircleCI) {
+            $envVarsDest = $destBase . '/.circleci/env_vars.sh';
+            if (!file_exists($envVarsDest)) {
+                $this->copyFile(
+                    $sourceBase . '/.circleci/env_vars.sh',
+                    $envVarsDest
+                );
+            } else {
+                $this->io->write(sprintf('  - Skipped copying env_vars.sh, file already exists at: %s', str_replace(getcwd() . '/', '', $envVarsDest)));
+            }
         }
-
-        $this->copyFile(
-            $sourceBase . '/github/pr-comments-to-jira.yml',
-            $destBase . '/.github/workflows/pr-comments-to-jira.yml'
-        );
         $this->copyFile(
             $sourceBase . '/scripts/dev-multidev.sh',
             $destBase . '/.ci/scripts/dev-multidev.sh'
@@ -137,6 +156,42 @@ class Installer
         $this->io->write('  - All files have been copied successfully!');
         
         echo "Pantheon CI files installed to project root!\n";
+    }
+
+    /**
+     * Resolve which CI providers should be installed.
+     *
+     * Supported values in project composer.json:
+     * extra.pantheon-ci-tools.ci_provider = circleci|github|both
+     */
+    protected function resolveCiProvider(): string
+    {
+        $default = 'circleci';
+        $projectRoot = $this->findProjectRoot();
+        $composerFile = $projectRoot . '/composer.json';
+
+        if (!file_exists($composerFile)) {
+            return $default;
+        }
+
+        $composerJson = json_decode(file_get_contents($composerFile), true);
+        if (!is_array($composerJson)) {
+            return $default;
+        }
+
+        $provider = $composerJson['extra']['pantheon-ci-tools']['ci_provider'] ?? $default;
+        $provider = strtolower((string) $provider);
+
+        if (!in_array($provider, ['circleci', 'github', 'both'], true)) {
+            $this->io->write(sprintf(
+                '  - Warning: Unsupported ci_provider "%s". Falling back to %s.',
+                $provider,
+                $default
+            ));
+            return $default;
+        }
+
+        return $provider;
     }
     
     /**

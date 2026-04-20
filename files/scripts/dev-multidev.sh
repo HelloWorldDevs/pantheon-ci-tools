@@ -2,6 +2,17 @@
 
 set -eo pipefail
 
+# Validate required deploy variables early.
+if [[ -z "${TERMINUS_TOKEN:-}" ]]; then
+  echo "TERMINUS_TOKEN is required."
+  exit 1
+fi
+
+if [[ -z "${TERMINUS_SITE:-}" ]]; then
+  echo "TERMINUS_SITE is required."
+  exit 1
+fi
+
 # Authenticate with Terminus
 terminus -n auth:login --machine-token="$TERMINUS_TOKEN"
 
@@ -58,15 +69,24 @@ if [ "$FRAMEWORK" == "drupal" ]; then
 elif [ "$FRAMEWORK" == "wordpress" ]; then
   # Diagnostic: Get WP-CLI info
   echo "WP-CLI info:"
-  terminus -n wp "$TERMINUS_SITE.$TERMINUS_ENV" -- cli info
+  if ! terminus -n wp "$TERMINUS_SITE.$TERMINUS_ENV" -- cli info; then
+    echo "Failed to run WP-CLI in ${TERMINUS_SITE}.${TERMINUS_ENV}. Verify WordPress is installed and environment is healthy."
+    exit 1
+  fi
 
   # Update the WordPress database
   echo "Running database updates..."
-  terminus -n wp "$TERMINUS_SITE.$TERMINUS_ENV" -- core update-db
+  if ! terminus -n wp "$TERMINUS_SITE.$TERMINUS_ENV" -- core update-db; then
+    echo "WordPress database update failed in ${TERMINUS_SITE}.${TERMINUS_ENV}."
+    exit 1
+  fi
 
   # Clear WordPress caches
   echo "Clearing WordPress caches..."
-  terminus -n wp "$TERMINUS_SITE.$TERMINUS_ENV" -- cache flush
+  if ! terminus -n wp "$TERMINUS_SITE.$TERMINUS_ENV" -- cache flush; then
+    echo "WordPress cache flush failed in ${TERMINUS_SITE}.${TERMINUS_ENV}."
+    exit 1
+  fi
 fi
 
 # Clear Pantheon environment cache

@@ -1,40 +1,65 @@
 #!/bin/bash
 
-# Set TERMINUS_SITE with fallback to project name
-export TERMINUS_SITE="${TERMINUS_SITE:-${DEFAULT_SITE:-$CIRCLE_PROJECT_REPONAME}}"
+# Normalize CI branch and PR variables across CircleCI and GitHub Actions.
+CI_BRANCH="${CI_BRANCH:-${CIRCLE_BRANCH:-${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-}}}}"
+CI_PULL_REQUEST="${CIRCLE_PULL_REQUEST:-}"
+PR_NUMBER="${PR_NUMBER:-}"
+
+if [[ -z "${PR_NUMBER}" && -n "${CI_PULL_REQUEST}" && "${CI_PULL_REQUEST}" =~ ([0-9]+)$ ]]; then
+    PR_NUMBER="${BASH_REMATCH[1]}"
+fi
+
+if [[ -z "${PR_NUMBER}" && -n "${GITHUB_EVENT_PATH:-}" && -f "${GITHUB_EVENT_PATH}" ]]; then
+    PR_NUMBER=$(php -r '$event=json_decode(file_get_contents(getenv("GITHUB_EVENT_PATH")), true); echo $event["pull_request"]["number"] ?? "";')
+fi
+
+if [[ -z "${CI_PULL_REQUEST}" && -n "${PR_NUMBER}" && -n "${GITHUB_REPOSITORY:-}" && -n "${GITHUB_SERVER_URL:-}" ]]; then
+    CI_PULL_REQUEST="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/pull/${PR_NUMBER}"
+fi
+
+if [[ -z "${CI_BRANCH}" ]]; then
+    CI_BRANCH="${GITHUB_REF_NAME:-}"
+fi
+
+export CI_BRANCH
+export CI_PULL_REQUEST
+export PR_NUMBER
+
+# Set TERMINUS_SITE with fallback to project/repo name
+REPO_NAME="${CIRCLE_PROJECT_REPONAME:-${GITHUB_REPOSITORY##*/}}"
+export TERMINUS_SITE="${TERMINUS_SITE:-${DEFAULT_SITE:-${REPO_NAME}}}"
 echo "Using TERMINUS_SITE: $TERMINUS_SITE"
 
 # Initialize JIRA_TICKET_ID and TERMINUS_ENV
-JIRA_TICKET_ID="NO_TICKET"
+JIRA_TICKET_ID="${JIRA_TICKET_ID:-NO_TICKET}"
 
 # Extract Jira ticket ID from branch name (e.g., WAV-123)
-if [[ "${CIRCLE_BRANCH}" =~ ([A-Z]{1,10}-[0-9]+) ]]; then
+if [[ "${CI_BRANCH}" =~ ([A-Z]{1,10}-[0-9]+) ]]; then
     JIRA_TICKET_ID="${BASH_REMATCH[0]}"
     echo "Found Jira ticket in branch name: $JIRA_TICKET_ID"
 # Fallback to PR number if available
-elif [[ -n "${CIRCLE_PULL_REQUEST}" ]]; then
-    PR_NUMBER=$(echo "${CIRCLE_PULL_REQUEST}" | grep -oE '[0-9]+$' || echo "")
-    if [[ -n "$PR_NUMBER" ]]; then
+elif [[ -n "${PR_NUMBER}" ]]; then
+    if [[ -n "${PR_NUMBER}" ]]; then
         JIRA_TICKET_ID="PR-$PR_NUMBER"
         echo "Using PR number as ticket ID: $JIRA_TICKET_ID"
     fi
 fi
 
 # Set environment based on branch type
-echo "CIRCLE_BRANCH: $CIRCLE_BRANCH"
+echo "CI_BRANCH: $CI_BRANCH"
 echo "JIRA_TICKET_ID: $JIRA_TICKET_ID"
-echo "CIRCLE_PULL_REQUEST: $CIRCLE_PULL_REQUEST"
+echo "CI_PULL_REQUEST: $CI_PULL_REQUEST"
+echo "PR_NUMBER: $PR_NUMBER"
 
-if [[ "$CIRCLE_BRANCH" == "master" ]]; then
+if [[ "$CI_BRANCH" == "${DEFAULT_BRANCH:-master}" ]]; then
     TERMINUS_ENV="dev"
-    echo "Setting TERMINUS_ENV to 'dev' (master branch)"
+    echo "Setting TERMINUS_ENV to 'dev' (default branch)"
 elif [[ "$JIRA_TICKET_ID" != "NO_TICKET" ]]; then
     # Transform ticket ID for environment name (lowercase, max 11 chars)
     TERMINUS_ENV=$(echo "$JIRA_TICKET_ID" | tr '[:upper:]' '[:lower:]' | cut -c -11)
     echo "Setting TERMINUS_ENV to '$TERMINUS_ENV' (from JIRA ticket)"
-elif [[ -n "$CIRCLE_PULL_REQUEST" ]]; then
-    PR_NUMBER=$(echo "$CIRCLE_PULL_REQUEST" | grep -oE '[0-9]+$' || echo "0")
-    echo "Extracted PR_NUMBER: $PR_NUMBER"
+elif [[ -n "$PR_NUMBER" ]]; then
+    echo "Using PR_NUMBER: $PR_NUMBER"
     if [[ "$PR_NUMBER" != "0" ]]; then
         TERMINUS_ENV="pr-${PR_NUMBER}"
         TERMINUS_ENV=$(echo "$TERMINUS_ENV" | tr '[:upper:]' '[:lower:]' | cut -c -11)

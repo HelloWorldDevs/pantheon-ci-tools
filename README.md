@@ -6,7 +6,7 @@ A Composer plugin that sets up CI/CD pipelines for Pantheon projects with Circle
 
 - 🚀 **Automated Deployments** - Push to deploy to Pantheon multidev environments
 - 👁️ **Visual Regression Testing** - Catch visual bugs with Playwright
-- 🔗 **GitHub Integration** - PR status checks and comments
+- 🔗 **GitHub Actions Support** - Opt-in PR deploy/test/cleanup workflows
 - 🧹 **Automated Cleanup** - Remove stale multidev environments
 - 🛠️ **Zero Configuration** - Works out of the box with sensible defaults
 
@@ -23,6 +23,27 @@ composer config allow-plugins.helloworlddevs/pantheon-ci-tools true
 ```bash
 composer require --dev helloworlddevs/pantheon-ci-tools
 ```
+
+### CI Provider Selection
+
+CircleCI remains the default so existing projects keep working unchanged.
+
+To opt into GitHub Actions (or install both), set this in your project `composer.json`:
+
+```json
+{
+  "extra": {
+    "pantheon-ci-tools": {
+      "ci_provider": "github"
+    }
+  }
+}
+```
+
+Supported values:
+- `circleci` (default)
+- `github`
+- `both`
 
 ## Visual Regression Testing
 
@@ -56,12 +77,22 @@ Customize visual testing in `playwright.config.js`:
 
 ## CI/CD Pipeline
 
-The plugin sets up a CircleCI pipeline that:
+### CircleCI (default)
+
+The default install sets up a CircleCI pipeline that:
 
 1. Runs on every PR
 2. Deploys to a multidev environment
 3. Runs visual regression tests
 4. Reports results back to GitHub
+
+### GitHub Actions (opt-in)
+
+When `ci_provider` is set to `github` (or `both`), the installer also adds workflows for:
+
+1. PR multidev deploy + visual regression testing
+2. PR comment syncing to Jira
+3. Multidev cleanup when PRs are merged
 
 ### Required Environment Variables
 
@@ -73,6 +104,24 @@ PANTHEON_SITE=your-site-name
 TERMINUS_TOKEN=your-terminus-token
 GITHUB_TOKEN=your-github-token
 ```
+
+For GitHub Actions, set:
+- Repository variable: `PANTHEON_SITE`
+- Repository secrets: `TERMINUS_TOKEN`, `GITHUB_TOKEN`
+- Optional Jira secrets for comment sync: `JIRA_BASE_URL`, `JIRA_USER`, `JIRA_TOKEN`
+- Optional theme variables for asset build customization:
+  - `THEME_PATH`
+  - `THEME_INSTALL`
+  - `THEME_BUILD`
+
+### WordPress Deploy Notes (`go-hwd-site`)
+
+The shared deploy script auto-detects WordPress by checking for `wp-config.php` (root or `web/`).
+
+For WordPress repos (including `go-hwd-site` test runs):
+- Set `PANTHEON_SITE=go-hwd-site`
+- Provide WP theme build variables if needed (`THEME_PATH`, `THEME_INSTALL`, `THEME_BUILD`)
+- Ensure `test_routes.json` contains valid WordPress routes for Playwright comparison tests
 
 ## Troubleshooting
 
@@ -123,6 +172,14 @@ Run the built-in test that uses your local code directly:
 php test_local_installer.php
 ```
 
+You can run provider matrix checks locally:
+
+```bash
+TEST_CI_PROVIDER=circleci php test_local_installer.php
+TEST_CI_PROVIDER=github php test_local_installer.php
+TEST_CI_PROVIDER=both php test_local_installer.php
+```
+
 This will:
 - Create a `sampleoutput/` directory with a mock Drupal project
 - Copy `lando-test.yml` as the sample `.lando.yml` file
@@ -160,7 +217,7 @@ composer install
 #### What Gets Installed
 
 The installer will:
-- Copy CI configuration files (`.circleci/`, `.ci/`, `.github/`)
+- Copy CI configuration files (`.circleci/`, `.ci/`, `.github/`) based on selected provider mode
 - Install Lando scripts (`lando/scripts/dev-config.sh`, `config-safety-check.sh`)
 - Add tooling commands to `.lando.yml` (`dev-config`, `config-check`, `safe-export`)
 - Add post-start and post-pull events to `.lando.yml`

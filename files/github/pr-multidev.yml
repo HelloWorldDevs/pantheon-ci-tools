@@ -1,0 +1,188 @@
+name: PR Multidev
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  build_and_deploy:
+    name: Build + Deploy Multidev
+    runs-on: ubuntu-latest
+    env:
+      TERMINUS_SITE: ${{ vars.PANTHEON_SITE }}
+      TERMINUS_TOKEN: ${{ secrets.TERMINUS_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      CI_BRANCH: ${{ github.head_ref || github.ref_name }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_TITLE: ${{ github.event.pull_request.title }}
+      PR_BODY: ${{ github.event.pull_request.body }}
+      THEME_PATH: ${{ vars.THEME_PATH }}
+      THEME_INSTALL: ${{ vars.THEME_INSTALL }}
+      THEME_BUILD: ${{ vars.THEME_BUILD }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+
+      - name: Setup Terminus
+        uses: pantheon-systems/terminus-github-actions@v1
+        env:
+          TERMINUS_ALLOW_UNSUPPORTED_NEWER_PHP: 1
+        with:
+          pantheon-machine-token: ${{ secrets.TERMINUS_TOKEN }}
+
+      - name: Install Terminus Secrets Plugin
+        env:
+          TERMINUS_ALLOW_UNSUPPORTED_NEWER_PHP: 1
+        run: terminus self:plugin:install pantheon-systems/terminus-secrets-plugin --yes
+
+      - name: Resolve CI variables
+        run: |
+          if [[ -z "${TERMINUS_SITE:-}" ]]; then
+            echo "Missing required repository variable: PANTHEON_SITE"
+            exit 1
+          fi
+
+          if [[ -z "${THEME_INSTALL:-}" ]]; then
+            echo "THEME_INSTALL not set; defaulting to npm install"
+            echo "THEME_INSTALL=npm install" >> "$GITHUB_ENV"
+          fi
+
+          if [[ -z "${THEME_BUILD:-}" ]]; then
+            echo "THEME_BUILD not set; defaulting to npm run build"
+            echo "THEME_BUILD=npm run build" >> "$GITHUB_ENV"
+          fi
+
+          issue_key=""
+          if [[ "${PR_TITLE:-}" =~ ([A-Z]{1,10}-[0-9]+) ]]; then
+            issue_key="${BASH_REMATCH[0]}"
+          elif [[ "${PR_BODY:-}" =~ ([A-Z]{1,10}-[0-9]+) ]]; then
+            issue_key="${BASH_REMATCH[0]}"
+          elif [[ "${CI_BRANCH:-}" =~ ([A-Z]{1,10}-[0-9]+) ]]; then
+            issue_key="${BASH_REMATCH[0]}"
+          fi
+
+          if [[ -n "$issue_key" ]]; then
+            echo "JIRA_TICKET_ID=$issue_key" >> "$GITHUB_ENV"
+          fi
+
+      - name: Setup environment URLs
+        run: |
+          source ./.ci/scripts/setup_vars.sh
+          {
+            echo "export TERMINUS_SITE='${TERMINUS_SITE}'"
+            echo "export TERMINUS_ENV='${TERMINUS_ENV}'"
+            echo "export MULTIDEV_SITE_URL='${MULTIDEV_SITE_URL}'"
+            echo "export DEV_SITE_URL='${DEV_SITE_URL}'"
+            echo "export PR_NUMBER='${PR_NUMBER:-}'"
+          } > /tmp/env_vars.sh
+          echo "MULTIDEV_SITE_URL=${MULTIDEV_SITE_URL}" >> "$GITHUB_ENV"
+          echo "DEV_SITE_URL=${DEV_SITE_URL}" >> "$GITHUB_ENV"
+
+      - name: Install Composer dependencies
+        run: |
+          if [ -f "composer.json" ]; then
+            composer install --no-ansi --no-interaction --optimize-autoloader --no-progress
+          else
+            echo "No composer.json found, skipping composer install."
+          fi
+
+      - name: Install and build theme assets
+        run: |
+          if [[ -z "${THEME_PATH:-}" ]]; then
+            echo "THEME_PATH not set; skipping theme build."
+            exit 0
+          fi
+
+          if [[ ! -d "${THEME_PATH}" ]]; then
+            echo "THEME_PATH '${THEME_PATH}' does not exist; skipping theme build."
+            exit 0
+          fi
+
+          cd "${THEME_PATH}"
+          eval "${THEME_INSTALL}"
+          eval "${THEME_BUILD}"
+
+      - name: Prepare code for Pantheon
+        run: |
+          if [ -f ".gitignore" ]; then
+            sed -i '1,/^# :::::::::::::::::::::: cut ::::::::::::::::::::::$/d' .gitignore || true
+          fi
+          git add -A
+          git -c user.email="github-actions@github.com" -c user.name="github-actions" commit -m "Preparing code for deployment" || true
+
+      - name: Deploy to Pantheon Multidev
+        run: ./.ci/scripts/dev-multidev.sh
+
+      - name: Upload CI env variables artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-env-vars
+          path: /tmp/env_vars.sh
+          if-no-files-found: error
+
+      - name: Comment multidev URL on PR
+        uses: actions/github-script@v7
+        env:
+          MULTIDEV_SITE_URL: ${{ env.MULTIDEV_SITE_URL }}
+        with:
+          script: |
+            const issue_number = context.payload.pull_request.number;
+            const body = `Pantheon Multidev environment is ready: ${process.env.MULTIDEV_SITE_URL}`;
+            await github.rest.issues.createComment({
+              ...context.repo,
+              issue_number,
+              body,
+            });
+
+  playwright_visual_tests:
+    name: Playwright Visual Regression
+    runs-on: ubuntu-latest
+    needs: build_and_deploy
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download CI env variables artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ci-env-vars
+          path: /tmp/workspace
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run Playwright visual regression tests
+        run: |
+          source /tmp/workspace/env_vars.sh
+          echo "MULTIDEV_SITE_URL=${MULTIDEV_SITE_URL}" >> "$GITHUB_ENV"
+          echo "DEV_SITE_URL=${DEV_SITE_URL}" >> "$GITHUB_ENV"
+
+          cd ./.ci/test/visual-regression
+          npm ci
+          npx playwright install
+          chmod +x ./run-playwright
+          ./run-playwright
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: ./.ci/test/visual-regression/playwright-report
+          if-no-files-found: ignore
+
+      - name: Upload Playwright test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-test-results
+          path: ./.ci/test/visual-regression/test-results
+          if-no-files-found: ignore

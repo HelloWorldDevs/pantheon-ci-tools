@@ -26,28 +26,51 @@ jobs:
           TERMINUS_ALLOW_UNSUPPORTED_NEWER_PHP: 1
         run: terminus self:plugin:install pantheon-systems/terminus-secrets-plugin --yes
 
+      - name: Resolve Multidev environment name
+        id: resolve_env
+        env:
+          PR_TITLE: "${{ github.event.pull_request.title }}"
+          PR_BODY: "${{ github.event.pull_request.body }}"
+          BRANCH: "${{ github.event.pull_request.head.ref || github.head_ref || github.ref_name }}"
+          PR_NUMBER: "${{ github.event.pull_request.number }}"
+        run: |
+          issue_key=""
+          if [[ "${PR_TITLE:-}" =~ ([A-Z]{1,10}-[0-9]+) ]]; then
+            issue_key="${BASH_REMATCH[0]}"
+          elif [[ "${PR_BODY:-}" =~ ([A-Z]{1,10}-[0-9]+) ]]; then
+            issue_key="${BASH_REMATCH[0]}"
+          elif [[ "${BRANCH:-}" =~ ([A-Z]{1,10}-[0-9]+) ]]; then
+            issue_key="${BASH_REMATCH[0]}"
+          fi
+
+          if [[ -n "$issue_key" ]]; then
+            TERMINUS_ENV="$(echo "$issue_key" | tr '[:upper:]' '[:lower:]' | cut -c -11)"
+          else
+            TERMINUS_ENV="pr-${PR_NUMBER}"
+            TERMINUS_ENV="$(echo "$TERMINUS_ENV" | tr '[:upper:]' '[:lower:]' | cut -c -11)"
+          fi
+
+          echo "Resolved multidev env name: ${TERMINUS_ENV}"
+          echo "terminus_env=${TERMINUS_ENV}" >> "$GITHUB_OUTPUT"
+
       - name: Delete Multidev Environment
         env:
           TERMINUS_ALLOW_UNSUPPORTED_NEWER_PHP: 1
-          # TERMINUS_TOKEN is used in the auth step above
-          # IMPORTANT: Ensure PANTHEON_SITE is set in GitHub repo variables
-          PANTHEON_SITE: "${{ vars.PANTHEON_SITE || 'your-site-name' }}"
-          # Get branch name from PR event
-          BRANCH: "${{ github.event.pull_request.head.ref || github.head_ref || github.ref_name }}"
+          PANTHEON_SITE: "${{ vars.PANTHEON_SITE }}"
+          TERMINUS_ENV: "${{ steps.resolve_env.outputs.terminus_env }}"
         run: |
-          echo "Original branch name: $BRANCH"
-          # Clean up branch name to be a valid multidev name (lowercase, alphanumeric, hyphens, max 11 chars, no leading/trailing hyphens)
-          CLEAN_BRANCH=$(echo "$BRANCH" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/^-*//;s/-*$//' | cut -c 1-11)
-          echo "Cleaned branch name for multidev: ${CLEAN_BRANCH}"
-          echo "Target Pantheon site: ${PANTHEON_SITE}"
+          if [[ -z "${PANTHEON_SITE:-}" ]]; then
+            echo "Missing required repository variable: PANTHEON_SITE"
+            exit 1
+          fi
 
           # Check if the multidev environment exists
-          if terminus env:list "${PANTHEON_SITE}" --field=id | grep -qw "${CLEAN_BRANCH}"; then
-            echo "Multidev environment '${CLEAN_BRANCH}' found for site '${PANTHEON_SITE}'. Deleting..."
-            terminus env:delete "${PANTHEON_SITE}.${CLEAN_BRANCH}" --delete-branch --yes --force
-            echo "Deletion command executed for multidev '${CLEAN_BRANCH}'."
+          if terminus env:list "${PANTHEON_SITE}" --field=id | grep -qw "${TERMINUS_ENV}"; then
+            echo "Multidev environment '${TERMINUS_ENV}' found for site '${PANTHEON_SITE}'. Deleting..."
+            terminus env:delete "${PANTHEON_SITE}.${TERMINUS_ENV}" --delete-branch --yes --force
+            echo "Deletion command executed for multidev '${TERMINUS_ENV}'."
           else
-            echo "No multidev environment named '${CLEAN_BRANCH}' found for site '${PANTHEON_SITE}'. Nothing to delete."
+            echo "No multidev environment named '${TERMINUS_ENV}' found for site '${PANTHEON_SITE}'. Nothing to delete."
           fi
 
       - name: Post cleanup comment

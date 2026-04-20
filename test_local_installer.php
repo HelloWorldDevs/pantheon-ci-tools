@@ -3,6 +3,15 @@
 echo "=== LOCAL INSTALLER TEST ===\n";
 echo "Testing local code directly (not via Composer package)...\n\n";
 
+$ciProvider = getenv('TEST_CI_PROVIDER') ?: 'circleci';
+$validProviders = ['circleci', 'github', 'both'];
+if (!in_array($ciProvider, $validProviders, true)) {
+    echo "❌ Invalid TEST_CI_PROVIDER: {$ciProvider}. Must be one of: circleci, github, both\n";
+    exit(1);
+}
+
+echo "🧭 CI provider mode under test: {$ciProvider}\n\n";
+
 $testDir = __DIR__ . '/sampleoutput';
 $originalDir = getcwd();
 
@@ -28,6 +37,11 @@ $mockComposerJson = [
     "require" => [
         "php" => ">=8.1",
         "drupal/core" => "^10.0"
+    ],
+    "extra" => [
+        "pantheon-ci-tools" => [
+            "ci_provider" => $ciProvider
+        ]
     ]
 ];
 
@@ -77,26 +91,16 @@ try {
     
     // Run the installer directly
     $installer = new Installer($io);
-    $result = $installer->install();
-    
-    if ($result) {
-        echo "✅ First run completed successfully!\n\n";
-    } else {
-        echo "❌ First run reported failure\n\n";
-    }
+    $installer->install();
+    echo "✅ First run completed successfully!\n\n";
 
     // Run the installer AGAIN to test idempotency
     echo "🔄 Running installer SECOND TIME to test idempotency...\n";
     echo "====================================================\n";
 
     $installer2 = new Installer($io);
-    $result2 = $installer2->install();
-
-    if ($result2) {
-        echo "✅ Second run completed successfully!\n\n";
-    } else {
-        echo "❌ Second run reported failure\n\n";
-    }
+    $installer2->install();
+    echo "✅ Second run completed successfully!\n\n";
     
 } catch (Exception $e) {
     echo "❌ Error running installer: " . $e->getMessage() . "\n";
@@ -175,15 +179,30 @@ if (file_exists('.lando.yml')) {
     echo "  - dev-config.sh: " . (file_exists('lando/scripts/dev-config.sh') ? "✅" : "❌") . "\n";
     echo "  - config-safety-check.sh: " . (file_exists('lando/scripts/config-safety-check.sh') ? "✅" : "❌") . "\n\n";
     
-    // Check CI files
-    $ciFilesInstalled = is_dir('.circleci') && 
-                       file_exists('.circleci/config.yml') && 
-                       is_dir('.ci/scripts');
+    // Check CI files based on selected provider mode
+    $hasCircleCiConfig = file_exists('.circleci/config.yml');
+    $hasGithubPrMultidev = file_exists('.github/workflows/pr-multidev.yml');
+    $hasGithubCleanup = file_exists('.github/workflows/delete-multidev-on-merge.yml');
+    $hasGithubJira = file_exists('.github/workflows/pr-comments-to-jira.yml');
+    $hasSharedScripts = is_dir('.ci/scripts');
+
+    $expectsCircleCi = in_array($ciProvider, ['circleci', 'both'], true);
+    $expectsGithub = in_array($ciProvider, ['github', 'both'], true);
+
+    $circleCiMatchesExpectation = $expectsCircleCi ? $hasCircleCiConfig : !$hasCircleCiConfig;
+    $githubMatchesExpectation = $expectsGithub
+        ? ($hasGithubPrMultidev && $hasGithubCleanup && $hasGithubJira)
+        : (!$hasGithubPrMultidev && !$hasGithubCleanup && !$hasGithubJira);
+
+    $ciFilesInstalled = $hasSharedScripts && $circleCiMatchesExpectation && $githubMatchesExpectation;
     
     echo "✅ CI files installed:\n";
-    echo "  - .circleci directory: " . (is_dir('.circleci') ? "✅" : "❌") . "\n";
-    echo "  - .ci/scripts directory: " . (is_dir('.ci/scripts') ? "✅" : "❌") . "\n";
-    echo "  - CircleCI config: " . (file_exists('.circleci/config.yml') ? "✅" : "❌") . "\n\n";
+    echo "  - .ci/scripts directory: " . ($hasSharedScripts ? "✅" : "❌") . "\n";
+    echo "  - CircleCI config expectation met: " . ($circleCiMatchesExpectation ? "✅" : "❌") . "\n";
+    echo "  - GitHub workflows expectation met: " . ($githubMatchesExpectation ? "✅" : "❌") . "\n";
+    echo "    - pr-multidev.yml present: " . ($hasGithubPrMultidev ? "✅" : "❌") . "\n";
+    echo "    - delete-multidev-on-merge.yml present: " . ($hasGithubCleanup ? "✅" : "❌") . "\n";
+    echo "    - pr-comments-to-jira.yml present: " . ($hasGithubJira ? "✅" : "❌") . "\n\n";
     
     // Overall success
     $allToolingAdded = $foundDevConfig && $foundConfigCheck && $foundSafeExport;
