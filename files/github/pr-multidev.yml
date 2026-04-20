@@ -9,7 +9,9 @@ jobs:
     name: Build + Deploy Multidev
     runs-on: ubuntu-latest
     env:
-      TERMINUS_SITE: ${{ vars.PANTHEON_SITE }}
+      PANTHEON_SITE: ${{ vars.PANTHEON_SITE }}
+      TERMINUS_SITE_VAR: ${{ vars.TERMINUS_SITE }}
+      TERMINUS_SITE_SECRET: ${{ secrets.TERMINUS_SITE }}
       TERMINUS_TOKEN: ${{ secrets.TERMINUS_TOKEN }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       CI_BRANCH: ${{ github.head_ref || github.ref_name }}
@@ -43,10 +45,22 @@ jobs:
 
       - name: Resolve CI variables
         run: |
-          if [[ -z "${TERMINUS_SITE:-}" ]]; then
-            echo "Missing required repository variable: PANTHEON_SITE"
+          resolved_site="${TERMINUS_SITE:-}"
+          if [[ -z "${resolved_site}" ]]; then
+            resolved_site="${PANTHEON_SITE:-}"
+          fi
+          if [[ -z "${resolved_site}" ]]; then
+            resolved_site="${TERMINUS_SITE_VAR:-}"
+          fi
+          if [[ -z "${resolved_site}" ]]; then
+            resolved_site="${TERMINUS_SITE_SECRET:-}"
+          fi
+
+          if [[ -z "${resolved_site}" ]]; then
+            echo "Missing Pantheon site configuration. Set one of: vars.PANTHEON_SITE, vars.TERMINUS_SITE, or secrets.TERMINUS_SITE."
             exit 1
           fi
+          echo "TERMINUS_SITE=${resolved_site}" >> "$GITHUB_ENV"
 
           if [[ -z "${THEME_INSTALL:-}" ]]; then
             echo "THEME_INSTALL not set; defaulting to npm install"

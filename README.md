@@ -103,8 +103,12 @@ TERMINUS_TOKEN=your-terminus-token
 GITHUB_TOKEN=your-github-token
 ```
 
-For GitHub Actions, set:
-- Repository variable: `PANTHEON_SITE`
+For GitHub Actions, set one of:
+- Repository variable: `PANTHEON_SITE` (preferred)
+- Repository variable: `TERMINUS_SITE`
+- Repository secret: `TERMINUS_SITE`
+
+Also set:
 - Repository secrets: `TERMINUS_TOKEN`, `GITHUB_TOKEN`
 - Optional Jira secrets for comment sync: `JIRA_BASE_URL`, `JIRA_USER`, `JIRA_TOKEN`
 - Optional theme variables for asset build customization:
