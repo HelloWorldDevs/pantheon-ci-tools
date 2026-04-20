@@ -46,7 +46,10 @@ jobs:
       - name: Install Terminus Secrets Plugin
         env:
           TERMINUS_ALLOW_UNSUPPORTED_NEWER_PHP: 1
-        run: terminus self:plugin:install pantheon-systems/terminus-secrets-plugin --yes
+        run: |
+          if ! terminus self:plugin:install pantheon-systems/terminus-secrets-plugin --yes; then
+            echo "Warning: Could not install Terminus Secrets plugin. Continuing without secrets:set support."
+          fi
 
       - name: Install Terminus Build Tools Plugin
         env:
