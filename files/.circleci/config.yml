@@ -161,26 +161,26 @@ jobs:
     - run:
         name: Deploying to Pantheon
         command: ./.ci/scripts/dev-multidev.sh
-      - run:
-          name: Import Drupal Configuration
+    - run:
+        name: Import Drupal Configuration
         no_output_timeout: 40m
-          command: |
-            echo "Exporting configuration from live environment to private files..."
-            terminus drush "$TERMINUS_SITE.live" -- config:export --destination=/files/private/config-export -y
+        command: |
+          echo "Exporting configuration from live environment to private files..."
+          terminus drush "$TERMINUS_SITE.live" -- config:export --destination=/files/private/config-export -y
 
-            echo "Downloading exported configuration from live environment..."
-            terminus rsync "$TERMINUS_SITE.live":files/private/config-export/ ./config/sync/
+          echo "Downloading exported configuration from live environment..."
+          terminus rsync "$TERMINUS_SITE.live":files/private/config-export/ ./config/sync/
 
-            echo "Uploading configuration to multidev environment..."
-            terminus rsync ./config/sync/ "$TERMINUS_SITE.$TERMINUS_ENV":files/config-sync/
+          echo "Uploading configuration to multidev environment..."
+          terminus rsync ./config/sync/ "$TERMINUS_SITE.$TERMINUS_ENV":files/config-sync/
 
-            echo "Importing configuration into multidev environment..."
-            terminus drush "$TERMINUS_SITE.$TERMINUS_ENV" -- config:import -y
+          echo "Importing configuration into multidev environment..."
+          terminus drush "$TERMINUS_SITE.$TERMINUS_ENV" -- config:import -y
 
-            echo "Clearing caches..."
-            terminus drush "$TERMINUS_SITE.$TERMINUS_ENV" -- cache:rebuild
+          echo "Clearing caches..."
+          terminus drush "$TERMINUS_SITE.$TERMINUS_ENV" -- cache:rebuild
 
-            echo "Configuration sync completed successfully"
+          echo "Configuration sync completed successfully"
     - run:
         name: Post Multidev URL to GitHub PR
         command: ./.ci/scripts/post_multidev_url.sh
