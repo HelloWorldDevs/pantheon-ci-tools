@@ -57,9 +57,12 @@ else
 fi
 
 # Check 4: Config sync directory is correct
+# This relies on `lando drush` and is only meaningful in a local Lando env.
+# Skip in CI (the merged config gets imported on the multidev itself).
 echo "4. Checking config sync directory setting..."
-# Check the actual Drupal config sync directory using drush
-if cd html && lando drush status --field=config-sync 2>/dev/null | grep -q "../config/sync"; then
+if [[ -n "${CI:-}" ]]; then
+    echo -e "${YELLOW}⚠ Skipping in CI (no Lando)${NC}"
+elif cd html && lando drush status --field=config-sync 2>/dev/null | grep -q "../config/sync"; then
     echo -e "${GREEN}✓ Config sync directory correctly set${NC}"
 else
     echo -e "${RED}✗ ERROR: Config sync directory not properly configured${NC}"
