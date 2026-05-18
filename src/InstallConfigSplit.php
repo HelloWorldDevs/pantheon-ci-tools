@@ -46,6 +46,7 @@ class InstallConfigSplit {
    */
   private $ciScripts = [
     'sync-prod-config.sh',
+    'post_config_sync_comment.sh',
   ];
 
   public function __construct(IOInterface $io, $projectRoot) {

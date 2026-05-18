@@ -168,9 +168,18 @@ jobs:
         environment:
           CONFIG_BASE_BRANCH: main
           CONFIG_SYNC_DIR: config/sync
+          CONFIG_SYNC_REPORT: /tmp/config-sync-report.md
         command: |
           chmod +x ./.ci/scripts/config_split/sync-prod-config.sh
           ./.ci/scripts/config_split/sync-prod-config.sh
+    - run:
+        name: Post config-sync report to PR (mirrored to Jira)
+        when: always
+        environment:
+          CONFIG_SYNC_REPORT: /tmp/config-sync-report.md
+        command: |
+          chmod +x ./.ci/scripts/config_split/post_config_sync_comment.sh
+          ./.ci/scripts/config_split/post_config_sync_comment.sh
     - run:
         name: Post Multidev URL to GitHub PR
         command: ./.ci/scripts/post_multidev_url.sh
