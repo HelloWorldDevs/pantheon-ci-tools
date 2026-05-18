@@ -39,6 +39,15 @@ class InstallConfigSplit {
     'dev-config.sh'
   ];
 
+  /**
+   * Scripts installed into .ci/scripts/config_split/ for CircleCI usage.
+   *
+   * @var string[]
+   */
+  private $ciScripts = [
+    'sync-prod-config.sh',
+  ];
+
   public function __construct(IOInterface $io, $projectRoot) {
     $this->io = $io;
     $this->projectRoot = $projectRoot;
@@ -59,6 +68,10 @@ class InstallConfigSplit {
     
     if (!$this->installLandoScripts()) {
       $this->io->writeError('  - Error: could not install Lando scripts; aborting config split installation.');
+      return;
+    }
+    if (!$this->installCiScripts()) {
+      $this->io->writeError('  - Error: could not install CI config-sync scripts; aborting config split installation.');
       return;
     }
     if (!$this->modifyLandoFile()) {
@@ -228,7 +241,43 @@ class InstallConfigSplit {
 
     return true;
   }
-  
+
+  /**
+   * Copies CircleCI-side config-sync scripts into the project at
+   * .ci/scripts/config_split/. Always overwrites so updates ship cleanly.
+   *
+   * @return bool True if successful, false if not.
+   */
+  protected function installCiScripts(): bool {
+    $ciScriptsDir = rtrim($this->projectRoot, '/') . '/.ci/scripts/config_split';
+
+    if (!\is_dir($ciScriptsDir) && !\mkdir($ciScriptsDir, 0755, true) && !\is_dir($ciScriptsDir)) {
+      $this->io->writeError(sprintf('  - Error: failed to create CI scripts directory %s', $ciScriptsDir));
+      return false;
+    }
+
+    foreach ($this->ciScripts as $script) {
+      $src = $this->scriptDir . '/' . $script;
+      $dst = $ciScriptsDir . '/' . $script;
+      if (!file_exists($src)) {
+        $this->io->writeError(sprintf('  - Error: source CI script not found: %s', $src));
+        return false;
+      }
+      if (!copy($src, $dst)) {
+        $this->io->writeError(sprintf('  - Error: failed to copy %s to %s', $script, $dst));
+        return false;
+      }
+      if (!chmod($dst, 0755)) {
+        $this->io->writeError(sprintf('  - Error: failed to make executable: %s', $script));
+        return false;
+      }
+      $this->io->write(sprintf('  - Installed CI script: %s', str_replace(getcwd() . '/', '', $dst)));
+    }
+
+    return true;
+  }
+
+
   /**
    * Ensure a dev requirement exists in composer.json.
    *
