@@ -39,8 +39,8 @@ done
 REPO="${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}"
 
 # JSON-encode the markdown body safely.
-BODY_JSON="$(python3 -c '
-import json, os, sys
+BODY_JSON="$(REPORT_FILE="${REPORT_FILE}" python3 -c '
+import json, os
 with open(os.environ["REPORT_FILE"]) as f:
     print(json.dumps({"body": f.read()}))
 ')"
