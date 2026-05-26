@@ -115,14 +115,16 @@ echo "==> Writing sync report to ${REPORT_FILE}"
 
 echo "==> Running config safety checks on merged result"
 SAFETY_CHECK="$(dirname "$0")/config-safety-check.sh"
-if [ -x "${SAFETY_CHECK}" ]; then
-  if ! "${SAFETY_CHECK}"; then
+if [ -f "${SAFETY_CHECK}" ]; then
+  # Invoke explicitly via bash so we don't depend on the executable bit
+  # and so the script always runs under bash regardless of how it's called.
+  if ! bash "${SAFETY_CHECK}"; then
     echo "❌ Config safety check failed. Aborting sync before push to multidev." >&2
     echo "_⚠️ Config safety check failed — sync aborted before multidev push._" >> "${REPORT_FILE}"
     exit 1
   fi
 else
-  echo "    config-safety-check.sh not found at ${SAFETY_CHECK} — skipping."
+  echo "    config-safety-check.sh not present at ${SAFETY_CHECK} — skipping."
 fi
 
 echo "==> Committing merged config (if changed)"
