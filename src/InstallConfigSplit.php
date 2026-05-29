@@ -47,6 +47,7 @@ class InstallConfigSplit {
   private $ciScripts = [
     'sync-prod-config.sh',
     'post_config_sync_comment.sh',
+    'post_config_sync_jira_comment.sh',
     'config-safety-check.sh',
   ];
 

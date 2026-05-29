@@ -181,6 +181,19 @@ jobs:
           chmod +x ./.ci/scripts/config_split/post_config_sync_comment.sh
           ./.ci/scripts/config_split/post_config_sync_comment.sh
     - run:
+        name: Post config-sync report directly to Jira
+        when: always
+        environment:
+          CONFIG_SYNC_REPORT: /tmp/config-sync-report.md
+        command: |
+          # Posts to Jira REST API directly so prod config drift lands on
+          # the ticket even when no PR is associated, or when the
+          # GitHub→Jira mirror workflow isn't installed. Requires
+          # JIRA_BASE_URL / JIRA_USER / JIRA_TOKEN in a CircleCI context;
+          # the script no-ops cleanly if any are missing.
+          chmod +x ./.ci/scripts/config_split/post_config_sync_jira_comment.sh
+          ./.ci/scripts/config_split/post_config_sync_jira_comment.sh
+    - run:
         name: Post Multidev URL to GitHub PR
         command: ./.ci/scripts/post_multidev_url.sh
 
