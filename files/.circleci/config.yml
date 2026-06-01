@@ -151,6 +151,20 @@ jobs:
             echo "Theme path not found or not defined. Skipping .gitignore removal."
           fi
     - run:
+        name: Capture PR-changed config (before build rewrites git)
+        environment:
+          CONFIG_BASE_BRANCH: main
+          CONFIG_SYNC_DIR: config/sync
+          PR_CHANGED_FILE: /tmp/pr-changed-config.txt
+          PR_BASE_DIR: /tmp/pr-base-config
+        command: |
+          # Snapshot which config/sync files the PR changed while the
+          # checkout is still pristine. The later "Sync Drupal config from
+          # prod" step reads this list — by then build:env:push has rewritten
+          # git, so the diff can't be recomputed reliably.
+          chmod +x ./.ci/scripts/config_split/capture-pr-config-changes.sh
+          ./.ci/scripts/config_split/capture-pr-config-changes.sh
+    - run:
         name: Preparing code for Pantheon
         command: |
           # Cutting root .gitignore so composer dependencies can be committed
@@ -169,6 +183,8 @@ jobs:
           CONFIG_BASE_BRANCH: main
           CONFIG_SYNC_DIR: config/sync
           CONFIG_SYNC_REPORT: /tmp/config-sync-report.md
+          PR_CHANGED_FILE: /tmp/pr-changed-config.txt
+          PR_BASE_DIR: /tmp/pr-base-config
         command: |
           chmod +x ./.ci/scripts/config_split/sync-prod-config.sh
           ./.ci/scripts/config_split/sync-prod-config.sh

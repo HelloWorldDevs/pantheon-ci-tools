@@ -43,10 +43,11 @@ if [ ! -s "${REPORT_FILE}" ]; then
   exit 0
 fi
 
-# Only post when prod actually contributed changes. The sync script writes
-# "Updated from prod" / "Added from prod" section headers in those cases;
-# a PR-only report (just "Preserved from PR") isn't drift from prod.
-if ! grep -qE '^\*\*(Updated|Added) from prod' "${REPORT_FILE}"; then
+# Only post when prod actually contributed changes: either prod-side
+# updates/additions, or a conflict (a PR-changed file that also diverged on
+# prod). A report that only lists "Updated in this PR" isn't prod drift, so
+# we skip it — those changes are already visible in the PR itself.
+if ! grep -qE '^\*\*(Updated|Added) from prod|Changed in both this PR and prod' "${REPORT_FILE}"; then
   echo "No prod-side config changes in report — skipping Jira comment."
   exit 0
 fi

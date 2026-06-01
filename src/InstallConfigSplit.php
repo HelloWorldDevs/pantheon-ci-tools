@@ -45,6 +45,7 @@ class InstallConfigSplit {
    * @var string[]
    */
   private $ciScripts = [
+    'capture-pr-config-changes.sh',
     'sync-prod-config.sh',
     'post_config_sync_comment.sh',
     'post_config_sync_jira_comment.sh',
