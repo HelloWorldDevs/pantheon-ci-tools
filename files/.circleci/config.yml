@@ -121,7 +121,7 @@ jobs:
             exit 1
           fi
 
-          echo "Required theme variables verified: THEME_PATH=${THEME_PATH}, THEME_COMMAND=${THEME_COMMAND}"
+          echo "Required theme variables verified: THEME_PATH=${THEME_PATH}, THEME_INSTALL=${THEME_INSTALL}, THEME_BUILD=${THEME_BUILD}"
 
     # Use npm ci instead of npm install if you want to install dependencies
     # according to the exact versions in package-lock.json
@@ -134,10 +134,14 @@ jobs:
         name: Compiling SCSS to CSS, minifying JS
         command: cd ${THEME_PATH} && ${THEME_BUILD}
 
+    # NOTE: don't hardcode a web-root path (e.g. web/themes/) here — projects
+    # vary (web/ vs html/, per composer drupal-scaffold web-root). Built theme
+    # assets are deployed to Pantheon via build:env:push, and the visual-
+    # regression job tests the live multidev URL, so it doesn't need the theme
+    # source in the workspace. Persist only what later jobs actually consume.
     - persist_to_workspace:
         root: .
         paths:
-        - web/themes/
         - test_routes.json
     - run:
         name: Remove .gitignore files from theme directories

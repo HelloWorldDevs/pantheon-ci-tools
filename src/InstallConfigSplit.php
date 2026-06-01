@@ -313,6 +313,18 @@ class InstallConfigSplit {
           return false;
       }
 
+      // Check BOTH require and require-dev. If config_split is already a
+      // top-level (prod) requirement, adding it to require-dev as well creates
+      // a duplicate package definition that Composer rejects.
+      $inRequire = (
+        isset($decoded['require']) && is_array($decoded['require']) &&
+        array_key_exists($this->configSplitPackage, $decoded['require'])
+      );
+      if ($inRequire) {
+          $this->io->write(sprintf('  - %s already present in require; leaving as-is (not adding to require-dev).', $this->configSplitPackage));
+          return true;
+      }
+
       $alreadyPresent = (
         isset($decoded['require-dev']) && is_array($decoded['require-dev']) &&
         array_key_exists($this->configSplitPackage, $decoded['require-dev'])
