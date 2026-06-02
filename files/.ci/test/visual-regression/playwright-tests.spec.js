@@ -348,8 +348,21 @@ paths.forEach(({ name, url }) => {
         // Reset to top of page
         await testPage.evaluate(() => window.scrollTo(0, 0));
 
-        // Add a delay to ensure all content is loaded before taking the screenshot
-        await testPage.waitForTimeout(3000); // 3 second delay
+        // Wait for the network to actually settle after our scroll-up-down
+        // pass. The scroll triggers IntersectionObserver-driven lazy image
+        // loads, and goto()'s `networkidle` from earlier doesn't cover the
+        // requests we just kicked off. Without this, the screenshot
+        // stability loop fights against images still decoding/painting.
+        try {
+          await testPage.waitForLoadState("networkidle", { timeout: 10000 });
+        } catch (_) {
+          // Some pages keep a long-poll or analytics socket open and never
+          // hit networkidle — that's fine, fall through to the stability
+          // check which will tolerate it.
+        }
+
+        // Final stability delay (covers fonts swap, layout shift, etc.)
+        await testPage.waitForTimeout(3000);
 
         await expect(testPage).toHaveScreenshot(
           `${name.replace(/ /g, "-")}-${viewport}.png`,
@@ -359,10 +372,15 @@ paths.forEach(({ name, url }) => {
               : defaultMaxDiffPixelRatio,
             threshold: 0.2, // Consistent color sensitivity, aligns with Playwright default
             fullPage: true, // Capture the full page, not just the viewport
+            // Explicit per-call copies of the config-level defaults so a
+            // future tweak to expect.toHaveScreenshot can't silently
+            // un-stabilize captures. See playwright.config.js for the
+            // rationale on each.
+            animations: "disabled",
+            caret: "hide",
           }
         );
 
-        // Close the test page
         await testPage.close();
       });
     });

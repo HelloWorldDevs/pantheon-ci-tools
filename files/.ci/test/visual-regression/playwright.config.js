@@ -11,16 +11,29 @@ module.exports = defineConfig({
   timeout: 60 * 1000,
   expect: {
     /**
-     * Maximum time expect() should wait for the condition to be met
+     * Default expect() timeout. toHaveScreenshot needs its own larger
+     * budget (see below) — fullPage screenshots have to converge a
+     * stability loop (take screenshot, wait 100ms, take again, diff,
+     * repeat until two consecutive captures match). 10s isn't enough
+     * for content-rich Drupal pages with lazy-loaded images, especially
+     * when we're not pre-warming the cache.
      */
     timeout: 10000,
     toHaveScreenshot: {
       maxDiffPixelRatio: 0.02, // 2% threshold for differences
-      // For SSIM comparison, 'threshold' (0-1, lower is stricter) can be set per assertion if needed
+      // Per-assertion timeout for the stability loop. 30s is the
+      // Playwright-recommended floor for fullPage screenshots in CI.
+      timeout: 30000,
+      // Defense against false-positive stability churn:
+      //  - animations: 'disabled' prevents CSS transitions from
+      //    advancing between the two stability captures.
+      //  - caret: 'hide' prevents the text-input blinking caret from
+      //    flipping state between captures on forms.
+      animations: "disabled",
+      caret: "hide",
     },
     toMatchSnapshot: {
       maxDiffPixelRatio: 0.02, // 2% threshold for differences
-      // Allow for small dimension differences that don't affect functionality
       maxDiffPixels: 100,
     },
   },
