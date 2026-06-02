@@ -106,6 +106,14 @@ class Installer
             $sourceBase . '/scripts/setup_vars.sh',
             $destBase . '/.ci/scripts/setup_vars.sh'
         );
+        // detect_web_root.sh is sourced by setup_vars.sh AND appended to
+        // BASH_ENV so every subsequent step re-runs the THEME_PATH
+        // normalization after the project's env_vars.sh (which can
+        // otherwise overwrite the corrected value).
+        $this->copyFile(
+            $sourceBase . '/scripts/detect_web_root.sh',
+            $destBase . '/.ci/scripts/detect_web_root.sh'
+        );
 
         // Copy test files
         $this->copyFile(

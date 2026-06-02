@@ -66,6 +66,13 @@ jobs:
             echo "export JIRA_TICKET_ID='$JIRA_TICKET_ID'"
             echo "export MULTIDEV_SITE_URL='$MULTIDEV_SITE_URL'"
             echo "export DEV_SITE_URL='$DEV_SITE_URL'"
+
+            # Web-root + corrected theme path (computed by setup_vars.sh).
+            # Exporting both means every later step (Load env, Verify,
+            # Install, Build, Pantheon push, visual-regression job, etc.)
+            # gets the same canonical values without re-detecting.
+            echo "export WEB_ROOT='$WEB_ROOT'"
+            echo "export THEME_PATH='$THEME_PATH'"
           } > /tmp/workspace/env_vars.sh
 
           # Also add to BASH_ENV for current job steps
@@ -103,36 +110,23 @@ jobs:
           chmod +x ./.circleci/env_vars.sh
           # Source it into BASH_ENV for all steps
           echo 'source ./.circleci/env_vars.sh' >> $BASH_ENV
+          # Re-run web-root detection AFTER env_vars.sh on every step. The
+          # project's env_vars.sh may unconditionally `export THEME_PATH=...`
+          # which would otherwise overwrite the corrected value from
+          # setup_vars.sh. detect_web_root.sh is idempotent.
+          echo 'source ./.ci/scripts/detect_web_root.sh' >> $BASH_ENV
           source $BASH_ENV
 
-    # Verify required environment variables are set
+    # Verify required environment variables are set.
+    # THEME_PATH normalization runs automatically via $BASH_ENV (see
+    # setup_vars.sh + detect_web_root.sh); this step only sanity-checks the
+    # final values and hard-fails before we try to `cd` into something
+    # that doesn't exist.
     - run:
         name: Verify required theme variables are set
         command: |
-          # Auto-correct the web-root prefix in THEME_PATH against what's
-          # actually on disk. Pantheon projects vary between `html/` (legacy
-          # default) and `web/` (composer drupal-scaffold default). If
-          # THEME_PATH references one but only the other exists, swap the
-          # prefix so a stale env var (e.g. left over from a Copilot edit or
-          # an older CircleCI project setting) doesn't break the build. We
-          # persist via BASH_ENV so subsequent steps see the corrected value.
-          if [ -n "${THEME_PATH:-}" ]; then
-            ORIG_THEME_PATH="${THEME_PATH}"
-            if [ -d html ] && [ ! -d web ]; then
-              NEW_THEME_PATH="$(printf '%s' "${THEME_PATH}" | sed -E 's#(^|/)web/#\1html/#')"
-            elif [ -d web ] && [ ! -d html ]; then
-              NEW_THEME_PATH="$(printf '%s' "${THEME_PATH}" | sed -E 's#(^|/)html/#\1web/#')"
-            else
-              NEW_THEME_PATH="${THEME_PATH}"
-            fi
-            if [ "${NEW_THEME_PATH}" != "${ORIG_THEME_PATH}" ]; then
-              echo "⚠️  THEME_PATH web-root doesn't match this project; auto-correcting:"
-              echo "    before: ${ORIG_THEME_PATH}"
-              echo "    after:  ${NEW_THEME_PATH}"
-              export THEME_PATH="${NEW_THEME_PATH}"
-              echo "export THEME_PATH='${NEW_THEME_PATH}'" >> "$BASH_ENV"
-            fi
-          fi
+          echo "WEB_ROOT=${WEB_ROOT:-<unset>}"
+          echo "THEME_PATH=${THEME_PATH:-<unset>}"
 
           if [ -z "${THEME_PATH:-}" ]; then
             echo "ERROR: THEME_PATH environment variable is not set!"
@@ -142,6 +136,7 @@ jobs:
 
           if [ ! -d "${THEME_PATH}" ]; then
             echo "ERROR: THEME_PATH does not exist on disk: ${THEME_PATH}"
+            echo "Detected WEB_ROOT: ${WEB_ROOT:-<none>}"
             echo "Project layout (top-level):"
             ls -1 | sed 's/^/  /'
             exit 1
@@ -165,6 +160,24 @@ jobs:
     - run:
         name: Compiling SCSS to CSS, minifying JS
         command: cd ${THEME_PATH} && ${THEME_BUILD}
+
+    # Diagnostic: prove the build produced files before we try to ship them.
+    # If styles ever go missing from a deploy, this output is the first
+    # place to look — empty/missing artifacts here mean the build dropped
+    # them; full output here but missing on prod means the deploy step
+    # excluded them (see `git status` diagnostics below).
+    - run:
+        name: Theme build sanity check (post-build artifacts)
+        command: |
+          echo "Top-level contents of ${THEME_PATH}:"
+          ls -la "${THEME_PATH}" | sed 's/^/  /'
+          for d in dist build assets css js public; do
+            if [ -d "${THEME_PATH}/${d}" ]; then
+              echo
+              echo "${THEME_PATH}/${d} ($(du -sh "${THEME_PATH}/${d}" | cut -f1)):"
+              find "${THEME_PATH}/${d}" -maxdepth 3 -type f \( -name '*.css' -o -name '*.js' -o -name '*.map' \) | head -40 | sed 's/^/  /'
+            fi
+          done
 
     # NOTE: don't hardcode a web-root path (e.g. web/themes/) here — projects
     # vary (web/ vs html/, per composer drupal-scaffold web-root). Built theme
@@ -205,8 +218,31 @@ jobs:
         command: |
           # Cutting root .gitignore so composer dependencies can be committed
           sed -i '1,/^# :::::::::::::::::::::: cut ::::::::::::::::::::::$/d' .gitignore
-          # Committing any changes made during the build, including .gitignore adjustments
+
+          # Diagnostic: surface any .gitignore rules that would still exclude
+          # built theme assets. If files under THEME_PATH are listed here,
+          # they WILL be missing from the Pantheon push — fix the matching
+          # ignore rule (typically a `dist/`, `build/`, or `assets/` pattern
+          # in a parent .gitignore that our theme-dir cleanup didn't touch).
+          if [ -n "${THEME_PATH:-}" ] && [ -d "${THEME_PATH}" ]; then
+            echo "Checking for .gitignore exclusions under ${THEME_PATH}..."
+            IGNORED=$(git ls-files --others --ignored --exclude-standard "${THEME_PATH}" 2>/dev/null | head -40 || true)
+            if [ -n "${IGNORED}" ]; then
+              echo "⚠️  These built theme files are still .gitignore'd and WILL NOT deploy:"
+              printf '%s\n' "${IGNORED}" | sed 's/^/    /'
+              echo "    (Look for a parent-directory .gitignore with dist/, build/, or assets/ rules.)"
+            else
+              echo "  No .gitignore'd files under ${THEME_PATH}."
+            fi
+          fi
+
           git add -A
+
+          # Diagnostic: show exactly what's about to be deployed so missing
+          # files are obvious in the CI log without having to ssh to Pantheon.
+          echo "Files staged for deploy commit (truncated to 80 lines):"
+          git status --short | head -80 | sed 's/^/  /'
+
           git commit -m "Preparing code for deployment" || true
     - run:
         name: Deploying to Pantheon

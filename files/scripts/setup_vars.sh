@@ -1,5 +1,18 @@
 #!/bin/bash
 
+# Detect WEB_ROOT once and auto-correct THEME_PATH so every downstream step
+# can rely on the canonical values. See detect_web_root.sh for the logic.
+# Sourced rather than executed so the exports survive into this shell.
+_DETECT="$(dirname "${BASH_SOURCE[0]}")/detect_web_root.sh"
+if [ -f "${_DETECT}" ]; then
+    # shellcheck source=detect_web_root.sh
+    . "${_DETECT}"
+    echo "Detected WEB_ROOT: ${WEB_ROOT:-<none>}"
+else
+    echo "WARNING: detect_web_root.sh not found at ${_DETECT}; skipping web-root detection." >&2
+fi
+unset _DETECT
+
 # Set TERMINUS_SITE with fallback to project name
 export TERMINUS_SITE="${TERMINUS_SITE:-${DEFAULT_SITE:-$CIRCLE_PROJECT_REPONAME}}"
 echo "Using TERMINUS_SITE: $TERMINUS_SITE"
@@ -98,3 +111,5 @@ export JIRA_TICKET_ID
 export MULTIDEV_SITE_URL
 export DEV_SITE_URL
 export PR_NUMBER
+export WEB_ROOT
+export THEME_PATH
