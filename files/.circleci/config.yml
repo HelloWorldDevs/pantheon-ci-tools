@@ -109,9 +109,41 @@ jobs:
     - run:
         name: Verify required theme variables are set
         command: |
-          if [ -z "${THEME_PATH}" ]; then
+          # Auto-correct the web-root prefix in THEME_PATH against what's
+          # actually on disk. Pantheon projects vary between `html/` (legacy
+          # default) and `web/` (composer drupal-scaffold default). If
+          # THEME_PATH references one but only the other exists, swap the
+          # prefix so a stale env var (e.g. left over from a Copilot edit or
+          # an older CircleCI project setting) doesn't break the build. We
+          # persist via BASH_ENV so subsequent steps see the corrected value.
+          if [ -n "${THEME_PATH:-}" ]; then
+            ORIG_THEME_PATH="${THEME_PATH}"
+            if [ -d html ] && [ ! -d web ]; then
+              NEW_THEME_PATH="$(printf '%s' "${THEME_PATH}" | sed -E 's#(^|/)web/#\1html/#')"
+            elif [ -d web ] && [ ! -d html ]; then
+              NEW_THEME_PATH="$(printf '%s' "${THEME_PATH}" | sed -E 's#(^|/)html/#\1web/#')"
+            else
+              NEW_THEME_PATH="${THEME_PATH}"
+            fi
+            if [ "${NEW_THEME_PATH}" != "${ORIG_THEME_PATH}" ]; then
+              echo "⚠️  THEME_PATH web-root doesn't match this project; auto-correcting:"
+              echo "    before: ${ORIG_THEME_PATH}"
+              echo "    after:  ${NEW_THEME_PATH}"
+              export THEME_PATH="${NEW_THEME_PATH}"
+              echo "export THEME_PATH='${NEW_THEME_PATH}'" >> "$BASH_ENV"
+            fi
+          fi
+
+          if [ -z "${THEME_PATH:-}" ]; then
             echo "ERROR: THEME_PATH environment variable is not set!"
             echo "Please set THEME_PATH in the CircleCI project settings or in .circleci/env_vars.sh"
+            exit 1
+          fi
+
+          if [ ! -d "${THEME_PATH}" ]; then
+            echo "ERROR: THEME_PATH does not exist on disk: ${THEME_PATH}"
+            echo "Project layout (top-level):"
+            ls -1 | sed 's/^/  /'
             exit 1
           fi
 

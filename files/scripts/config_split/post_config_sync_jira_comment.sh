@@ -113,9 +113,32 @@ if links:
 section_re = re.compile(r"^\*\*(?P<title>[^*]+)\*\*\s*$")
 bullet_re  = re.compile(r"^-\s+" + chr(96) + r"(?P<file>[^" + chr(96) + r"]+)" + chr(96) + r"\s*$")
 italic_re  = re.compile(r"^_(?P<text>.+)_\s*$")
+fence = chr(96) * 3
 
 current_list = None
+in_code = False
+code_lines = []
 for line in lines:
+    # Fenced code block (``` ... ```): accumulate verbatim into an ADF
+    # codeBlock so multi-line shell steps render as one monospace block
+    # instead of one paragraph per line. Checked first so blank lines and
+    # markdown inside the fence are preserved.
+    if line.strip().startswith(fence):
+        if not in_code:
+            in_code = True
+            code_lines = []
+        else:
+            node = {"type": "codeBlock", "attrs": {"language": "bash"}}
+            if code_lines:
+                node["content"] = [{"type": "text", "text": "\n".join(code_lines)}]
+            content.append(node)
+            in_code = False
+            current_list = None
+        continue
+    if in_code:
+        code_lines.append(line)
+        continue
+
     if not line.strip():
         current_list = None
         continue

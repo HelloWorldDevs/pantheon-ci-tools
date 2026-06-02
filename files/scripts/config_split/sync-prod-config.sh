@@ -221,9 +221,41 @@ CONFLICT_FAIL="${CONFIG_CONFLICT_FAIL:-true}"
 if [ "${#CONFLICT_REL[@]}" -gt 0 ] && [ "${CONFLICT_FAIL}" != "false" ]; then
   echo "❌ ${#CONFLICT_REL[@]} config file(s) changed in BOTH this PR and prod — blocking deploy before multidev import:" >&2
   for f in "${CONFLICT_REL[@]}"; do echo "     - ${f}" >&2; done
+
+  RESOLVE_BRANCH="${CIRCLE_BRANCH:-your-branch}"
+  CONFLICT_LIST="$(printf '%s, ' "${CONFLICT_REL[@]}")"; CONFLICT_LIST="${CONFLICT_LIST%, }"
+
+  # Append a self-documenting resolution guide to the report so the PR/Jira
+  # comment tells the dev exactly how to get unblocked (no need to remember
+  # the workflow). Headers are standalone bold lines and the steps go in a
+  # fenced code block so both GitHub markdown and the Jira ADF renderer show
+  # them cleanly.
   {
-    echo "_⛔ Deploy blocked: resolve the conflicting config above, then re-run."
-    echo "(Set \`CONFIG_CONFLICT_FAIL=false\` to override and keep the PR version.)_"
+    echo
+    echo "**⛔ Deploy blocked — reconcile prod drift before merging**"
+    echo
+    echo "The file(s) above changed on ${TERMINUS_SITE}.live since ${BASE_BRANCH} and also in this PR. Applying prod's version would discard your edits (and vice-versa), so the deploy is stopped before any import."
+    echo
+    echo "**How to resolve**"
+    echo
+    echo "Pull prod's config into ${BASE_BRANCH}, then merge that into this branch and reconcile:"
+    echo
+    echo '```bash'
+    echo "# 1) Update ${BASE_BRANCH} with prod's current config"
+    echo "git checkout ${BASE_BRANCH} && git pull"
+    echo "terminus drush ${TERMINUS_SITE}.live -- config:export --destination=/files/private/config-export -y"
+    echo "terminus rsync ${TERMINUS_SITE}.live:files/private/config-export/ ./${SYNC_DIR}/"
+    echo "git add ${SYNC_DIR} && git commit -m 'Sync prod config drift' && git push"
+    echo ""
+    echo "# 2) Merge updated ${BASE_BRANCH} into this branch, then resolve: ${CONFLICT_LIST}"
+    echo "git checkout ${RESOLVE_BRANCH}"
+    echo "git merge ${BASE_BRANCH}"
+    echo "git add ${SYNC_DIR} && git commit && git push"
+    echo '```'
+    echo
+    echo "Re-running CI then passes: once ${BASE_BRANCH} matches prod, it's just a normal PR edit and the conflict clears."
+    echo
+    echo "_Override (keep the PR version and discard prod's drift): set CONFIG_CONFLICT_FAIL=false on the sync step._"
   } >> "${REPORT_FILE}"
   exit 1
 fi
