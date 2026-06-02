@@ -210,11 +210,16 @@ jobs:
         command: |
           echo "Top-level contents of ${THEME_PATH}:"
           ls -la "${THEME_PATH}" | sed 's/^/  /'
+          # Buffer find results to a file + truncate via awk to avoid
+          # SIGPIPE/141 with high-volume output under `set -eo pipefail`.
           for d in dist build assets css js public; do
             if [ -d "${THEME_PATH}/${d}" ]; then
               echo
               echo "${THEME_PATH}/${d} ($(du -sh "${THEME_PATH}/${d}" | cut -f1)):"
-              find "${THEME_PATH}/${d}" -maxdepth 3 -type f \( -name '*.css' -o -name '*.js' -o -name '*.map' \) | head -40 | sed 's/^/  /'
+              FIND_TMP="$(mktemp)"
+              find "${THEME_PATH}/${d}" -maxdepth 3 -type f \( -name '*.css' -o -name '*.js' -o -name '*.map' \) > "${FIND_TMP}" 2>/dev/null || true
+              awk 'NR<=40 {print "  " $0} END {if (NR>40) print "  ... (" NR-40 " more)"}' "${FIND_TMP}"
+              rm -f "${FIND_TMP}"
             fi
           done
 
@@ -263,24 +268,34 @@ jobs:
           # they WILL be missing from the Pantheon push — fix the matching
           # ignore rule (typically a `dist/`, `build/`, or `assets/` pattern
           # in a parent .gitignore that our theme-dir cleanup didn't touch).
+          # Buffer to a file (no pipes!) so SIGPIPE from `head` can't kill
+          # the build under `set -eo pipefail`.
           if [ -n "${THEME_PATH:-}" ] && [ -d "${THEME_PATH}" ]; then
             echo "Checking for .gitignore exclusions under ${THEME_PATH}..."
-            IGNORED=$(git ls-files --others --ignored --exclude-standard "${THEME_PATH}" 2>/dev/null | head -40 || true)
-            if [ -n "${IGNORED}" ]; then
+            IGNORED_TMP="$(mktemp)"
+            git ls-files --others --ignored --exclude-standard "${THEME_PATH}" > "${IGNORED_TMP}" 2>/dev/null || true
+            if [ -s "${IGNORED_TMP}" ]; then
               echo "⚠️  These built theme files are still .gitignore'd and WILL NOT deploy:"
-              printf '%s\n' "${IGNORED}" | sed 's/^/    /'
+              awk 'NR<=40 {print "    " $0} END {if (NR>40) print "    ... (" NR-40 " more)"}' "${IGNORED_TMP}"
               echo "    (Look for a parent-directory .gitignore with dist/, build/, or assets/ rules.)"
             else
               echo "  No .gitignore'd files under ${THEME_PATH}."
             fi
+            rm -f "${IGNORED_TMP}"
           fi
 
           git add -A
 
-          # Diagnostic: show exactly what's about to be deployed so missing
-          # files are obvious in the CI log without having to ssh to Pantheon.
-          echo "Files staged for deploy commit (truncated to 80 lines):"
-          git status --short | head -80 | sed 's/^/  /'
+          # Diagnostic: show what's about to be deployed so missing files
+          # are obvious in the CI log without having to ssh to Pantheon.
+          # Buffer to a file + truncate via awk (NOT `head`) to avoid the
+          # SIGPIPE/141 trap with high-volume output under `pipefail`.
+          STATUS_TMP="$(mktemp)"
+          git status --short > "${STATUS_TMP}" 2>/dev/null || true
+          STATUS_COUNT=$(wc -l < "${STATUS_TMP}" | tr -d ' ')
+          echo "Files staged for deploy commit (${STATUS_COUNT} total, showing up to 80):"
+          awk 'NR<=80 {print "  " $0} END {if (NR>80) print "  ... (" NR-80 " more)"}' "${STATUS_TMP}"
+          rm -f "${STATUS_TMP}"
 
           git commit -m "Preparing code for deployment" || true
     - run:

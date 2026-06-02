@@ -14,18 +14,39 @@
 # Idempotent: safe to source repeatedly. Only mutates THEME_PATH when the
 # prefix actually mismatches the detected web root.
 
-# Detect web root. Prefer html/ when both exist (Pantheon's traditional
-# layout); warn loudly so the project can clean up.
+# Detect web root.
+#
+# Important: `[ -d path ]` resolves symlinks, so a `html/` symlink that
+# points at `web/` (a common local-dev convenience for Lando) will look
+# identical to a real `html/` directory. The real (non-symlink) dir is
+# always the canonical web root — composer scaffolds into it, Pantheon
+# pushes it, and `git status` walks it without dereferencing the link.
+# When both paths resolve, pick the real one and treat the symlink as a
+# convenience alias.
+_html_is_link=false
+_web_is_link=false
+[ -L "html" ] && _html_is_link=true
+[ -L "web" ] && _web_is_link=true
+
 if [ -d "html" ] && [ ! -d "web" ]; then
     WEB_ROOT="html"
 elif [ -d "web" ] && [ ! -d "html" ]; then
     WEB_ROOT="web"
 elif [ -d "html" ] && [ -d "web" ]; then
-    WEB_ROOT="html"
-    echo "detect_web_root: WARNING both html/ and web/ exist; defaulting WEB_ROOT=html. Remove the unused one to silence this." >&2
+    if [ "${_html_is_link}" = "true" ] && [ "${_web_is_link}" = "false" ]; then
+        WEB_ROOT="web"
+        echo "detect_web_root: html/ is a symlink to web/; using WEB_ROOT=web (the real directory)." >&2
+    elif [ "${_web_is_link}" = "true" ] && [ "${_html_is_link}" = "false" ]; then
+        WEB_ROOT="html"
+        echo "detect_web_root: web/ is a symlink to html/; using WEB_ROOT=html (the real directory)." >&2
+    else
+        WEB_ROOT="html"
+        echo "detect_web_root: WARNING both html/ and web/ are real directories; defaulting WEB_ROOT=html. Remove the unused one to silence this." >&2
+    fi
 else
     WEB_ROOT=""
 fi
+unset _html_is_link _web_is_link
 export WEB_ROOT
 
 # Auto-correct THEME_PATH if its prefix doesn't match the detected web root.
