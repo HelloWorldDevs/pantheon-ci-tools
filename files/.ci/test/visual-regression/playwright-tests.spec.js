@@ -238,7 +238,14 @@ paths.forEach(({ name, url }) => {
       test(`${name} should look the same on ${viewport}`, async ({
         context,
       }) => {
-        // Set viewport size based on device type
+        // One concise in-flight progress line per test. Fires the moment
+        // the test starts (not after completion) so the CI log shows
+        // forward motion even while a 30s+ test is mid-screenshot.
+        // `process.stdout.write` (not console.log) avoids the implicit
+        // newline buffering that can hide output on some CI captures.
+        // The "list" reporter adds the post-test result line separately.
+        process.stdout.write(`  → ${name} on ${viewport}\n`);
+
         const viewportSizes = {
           mobile: { width: 320, height: 480 },
           tablet: { width: 1024, height: 768 },

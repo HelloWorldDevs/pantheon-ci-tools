@@ -51,8 +51,17 @@ module.exports = defineConfig({
   forbidOnly: !!process.env.CI,
   /* Retry failed tests in CI */
   retries: process.env.CI ? 1 : 0,
-  /* Reporter to use */
+  /* Reporters.
+   *
+   * `list` MUST be included or Playwright runs silent on stdout between
+   * worker startup and test completion. When you set `reporter` in
+   * config you replace ALL defaults — without an explicit stdout
+   * reporter here you get no progress markers, no pass/fail lines,
+   * nothing to tell you the suite is alive. `list` prints one line per
+   * test result with a status icon + duration, which is what the old
+   * `×F·` markers in the CI log were doing for us implicitly. */
   reporter: [
+    ["list"],
     ["html", { outputFolder: "playwright-report" }],
     ["junit", { outputFile: "test-results/junit.xml" }],
   ],
