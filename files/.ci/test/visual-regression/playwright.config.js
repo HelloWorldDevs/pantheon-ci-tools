@@ -7,33 +7,54 @@ const { defineConfig } = require("@playwright/test");
 module.exports = defineConfig({
   testDir: "./",
   testMatch: "*tests.spec.js",
-  /* Maximum time one test can run for */
-  timeout: 60 * 1000,
+  /* Maximum time one test can run for. Caps a runaway/hanging test
+   * so a single broken page can't burn the entire CI budget. With
+   * cache pre-warming and 15s screenshot stability, well-behaved
+   * tests complete in 5–15s; 45s leaves headroom for the slowest
+   * legitimate ones while terminating stuck pages fast. */
+  timeout: 45 * 1000,
   expect: {
     /**
-     * Default expect() timeout. toHaveScreenshot needs its own larger
-     * budget (see below) — fullPage screenshots have to converge a
-     * stability loop (take screenshot, wait 100ms, take again, diff,
-     * repeat until two consecutive captures match). 10s isn't enough
-     * for content-rich Drupal pages with lazy-loaded images, especially
-     * when we're not pre-warming the cache.
+     * Default expect() timeout for non-screenshot assertions.
      */
     timeout: 10000,
     toHaveScreenshot: {
-      maxDiffPixelRatio: 0.02, // 2% threshold for differences
-      // Per-assertion timeout for the stability loop. 30s is the
-      // Playwright-recommended floor for fullPage screenshots in CI.
-      timeout: 30000,
-      // Defense against false-positive stability churn:
-      //  - animations: 'disabled' prevents CSS transitions from
-      //    advancing between the two stability captures.
-      //  - caret: 'hide' prevents the text-input blinking caret from
-      //    flipping state between captures on forms.
+      maxDiffPixelRatio: 0.02,
+      /**
+       * STABILITY-LOOP TIMEOUT — read this if tests are timing out.
+       *
+       * `toHaveScreenshot` works by taking two screenshots 100ms apart
+       * and waiting for them to be pixel-identical (the "stability
+       * check") before locking in the result. This timeout is the
+       * budget for that loop to converge.
+       *
+       * If a test fails here with "Timed out 15000ms waiting for
+       * expect(page).toHaveScreenshot", the page has something that
+       * keeps changing between the two captures — almost always one of:
+       *
+       *   - A JS-driven carousel / image slider auto-advancing
+       *   - An auto-playing video (banner, hero, product reel)
+       *   - A typewriter / fade-in effect on hero text
+       *   - A "live" widget (countdown, view counter, chat icon)
+       *   - Lazy images still decoding from the scroll trigger
+       *   - A captcha / reCAPTCHA challenge frame
+       *
+       * `animations: 'disabled'` below disables CSS animations only —
+       * NOT setInterval/setTimeout/requestAnimationFrame loops in
+       * application JS. To fix a perma-failing page, add the offending
+       * selector to `hideSelectors` in your project's test_routes.json.
+       *
+       * 15s is intentional: stable pages converge in <5s, so 15s is
+       * generous; pages that won't stabilize at 15s won't at 30s
+       * either, and raising the ceiling just makes each failure 2x
+       * more expensive. Fail-fast > fail-slow.
+       */
+      timeout: 15000,
       animations: "disabled",
       caret: "hide",
     },
     toMatchSnapshot: {
-      maxDiffPixelRatio: 0.02, // 2% threshold for differences
+      maxDiffPixelRatio: 0.02,
       maxDiffPixels: 100,
     },
   },

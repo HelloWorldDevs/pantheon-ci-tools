@@ -160,10 +160,21 @@ echo "========================================================="
 # Clear any existing reference images to ensure clean state
 rm -rf playwright-tests.spec.js-snapshots
 
-# Create baseline images from the reference environment
+# Create baseline images from the reference environment.
+#
+# --retries=0 is intentional and important: in --update-snapshots mode,
+# the only way a test can "fail" is if the screenshot stability loop
+# can't converge (i.e. the page has un-stabilizable dynamic content like
+# auto-advancing carousels). That failure is deterministic — retrying
+# will just produce the same failure 30s later. The default --retries=1
+# from playwright.config.js would double the cost of every broken page
+# in Step 1 with zero chance of recovery. See the comment in
+# playwright.config.js → expect.toHaveScreenshot.timeout for how to
+# fix perma-failing pages (it's a project-side hideSelectors update,
+# not a tool config).
 echo "Running test with UPDATE_SNAPSHOTS flag to create baseline images..."
 set +e
-TESTING_URL=$DEV_SITE_URL npx playwright test --update-snapshots
+TESTING_URL=$DEV_SITE_URL npx playwright test --update-snapshots --retries=0
 set -e
 
 echo ""
