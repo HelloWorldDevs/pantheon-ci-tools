@@ -26,10 +26,124 @@ fi
 echo "Using multidev URL: $MULTIDEV_SITE_URL"
 echo "Using dev URL: $DEV_SITE_URL"
 
-# Ping both environments to wake them up
-echo -e "\nPinging environments to wake them up..."
-curl -I "$MULTIDEV_SITE_URL" > /dev/null || echo "Warning: Failed to ping $MULTIDEV_SITE_URL"
-curl -I "$DEV_SITE_URL" > /dev/null || echo "Warning: Failed to ping $DEV_SITE_URL"
+# ---------------------------------------------------------------------------
+# Cache pre-warming
+# ---------------------------------------------------------------------------
+# Pantheon multidev appservers sleep when idle and take 30–60s to spin up
+# on the first cold hit. The visual-regression tests' own goto() used to
+# eat that tax — and combined with the screenshot stability loop, that
+# pushed tests past the toHaveScreenshot timeout.
+#
+# We previously had a browser-based preWarmCache inside the spec file
+# (chromium per route × networkidle, then torn down), which DID solve the
+# cold-start but doubled total runtime. This bash-level warmer is the
+# right tool: parallel HTTP HEAD/GET against every route in test_routes.json
+# across BOTH environments, before any Playwright worker starts. That
+# amortizes the appserver wake-up across all 22 routes simultaneously
+# (8-way parallel by default; bound by Pantheon's connection limit, not
+# our sequential goto cost).
+
+# Locate test_routes.json. The CircleCI job persists it at the workspace
+# root; fall back to TEST_ROUTES_PATH (project override) or hunt nearby.
+find_routes_json() {
+  local candidates=(
+    "${TEST_ROUTES_PATH:-}"
+    "${CIRCLE_WORKING_DIRECTORY:-}/test_routes.json"
+    "${BUILD_DIR}/test_routes.json"
+    "${SCRIPT_DIR}/../../../test_routes.json"
+    "/tmp/workspace/test_routes.json"
+  )
+  for path in "${candidates[@]}"; do
+    if [ -n "${path}" ] && [ -f "${path}" ]; then
+      printf '%s\n' "${path}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Emit one URL path per line from test_routes.json. Handles both the new
+# `{ routes: { name: url, ... } }` schema and the legacy `{ name: url }`
+# top-level shape. Strips any protocol+host so we can prefix env URLs.
+extract_route_paths() {
+  local routes_file="$1"
+  node -e "
+    const fs = require('fs');
+    const raw = JSON.parse(fs.readFileSync('${routes_file}', 'utf8'));
+    const routes = (raw && typeof raw.routes === 'object') ? raw.routes : raw;
+    for (const url of Object.values(routes)) {
+      try {
+        const parsed = new URL(/^https?:\/\//.test(url) ? url : 'http://x' + url);
+        process.stdout.write(parsed.pathname + parsed.search + '\n');
+      } catch (e) {
+        process.stdout.write(String(url) + '\n');
+      }
+    }
+  "
+}
+
+# Hit every (env × route) URL in parallel. Best-effort: failed warms just
+# log a warning, they don't abort the suite. Per-URL --max-time 90 to
+# absorb the cold appserver spin-up; Pantheon typically takes 30–60s on
+# the FIRST request and milliseconds thereafter.
+warm_caches() {
+  local routes_file="$1"
+  local start=$(date +%s)
+  local urls_file
+  urls_file=$(mktemp)
+
+  while IFS= read -r path_only; do
+    [ -z "${path_only}" ] && continue
+    printf '%s\n' "${DEV_SITE_URL}${path_only}" >> "${urls_file}"
+    printf '%s\n' "${MULTIDEV_SITE_URL}${path_only}" >> "${urls_file}"
+  done < <(extract_route_paths "${routes_file}")
+
+  if [ ! -s "${urls_file}" ]; then
+    echo "  No routes extracted from ${routes_file}; skipping warm."
+    rm -f "${urls_file}"
+    return 0
+  fi
+
+  local total
+  total=$(wc -l < "${urls_file}" | tr -d ' ')
+  echo "Warming ${total} URLs across both environments (8-way parallel)..."
+
+  # xargs -P 8 fans out 8 concurrent connections. The inner subshell
+  # swallows curl errors so a single 5xx or timeout doesn't take down
+  # the whole pipeline under `set -e`. Successful warms are silent;
+  # only non-2xx/3xx responses log to keep the CI log readable.
+  # Note: `if code=$(curl ...)` keeps the failure branch from
+  # CONCATENATING with curl's own http_code output (which is what
+  # `$(curl ... || echo 000)` does — yielding bogus "000000" strings).
+  xargs -P 8 -I {} bash -c '
+    url="$1"
+    if code=$(curl -sL -o /dev/null -w "%{http_code}" --max-time 90 "${url}" 2>/dev/null); then
+      :
+    else
+      code="000"
+    fi
+    case "${code}" in
+      2*|3*) : ;;
+      *) echo "  ⚠️  HTTP ${code} warming: ${url}" ;;
+    esac
+  ' _ {} < "${urls_file}" || true
+
+  rm -f "${urls_file}"
+  local elapsed=$(( $(date +%s) - start ))
+  echo "Cache warming complete in ${elapsed}s"
+}
+
+echo -e "\nPre-warming Pantheon caches for all routes..."
+if ROUTES_FILE=$(find_routes_json); then
+  echo "Using routes from: ${ROUTES_FILE}"
+  warm_caches "${ROUTES_FILE}"
+else
+  echo "Warning: could not find test_routes.json — falling back to bare-URL pings"
+  curl -sIL -o /dev/null --max-time 90 "$MULTIDEV_SITE_URL" \
+    || echo "Warning: Failed to ping $MULTIDEV_SITE_URL"
+  curl -sIL -o /dev/null --max-time 90 "$DEV_SITE_URL" \
+    || echo "Warning: Failed to ping $DEV_SITE_URL"
+fi
 
 
 # Run the tests

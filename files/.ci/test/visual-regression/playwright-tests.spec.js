@@ -221,9 +221,14 @@ ensureDirectoryExists(screenshotDir);
 // `networkidle`, then tore it down — only for the real test to immediately
 // `goto` the same URL with `networkidle` again. That paid the slow
 // page-load cost twice per route (5–30s each on cold Pantheon multidevs),
-// adding ~10–20 min to every run. Removed in favor of letting the test's
-// own goto() warm the cache. The bash `run-playwright` script still
-// curl-pings the multidev once at startup to wake the appserver.
+// adding ~10–20 min to every run.
+//
+// Cache pre-warming is now handled at the bash level in `run-playwright`
+// BEFORE any Playwright worker spins up: parallel curl against every
+// route in test_routes.json across both DEV and MULTIDEV environments
+// (8-way concurrency). That wakes Pantheon's appserver (the 30–60s
+// cold-start tax) and pre-fills Varnish once, instead of paying it
+// twice per route inside the test.
 
 // Define test for each path
 paths.forEach(({ name, url }) => {
