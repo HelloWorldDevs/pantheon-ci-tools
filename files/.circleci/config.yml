@@ -148,18 +148,57 @@ jobs:
             exit 1
           fi
 
+          # Catch the common copy-paste bug where THEME_BUILD is set to
+          # `npm install` (or duplicates THEME_INSTALL). The build "succeeds"
+          # but produces no compiled assets, and the deploy ships an unstyled
+          # site. Fail loudly here so the misconfiguration is obvious.
+          if [ "${THEME_BUILD}" = "${THEME_INSTALL}" ] || \
+             printf '%s' "${THEME_BUILD}" | grep -qE '^[[:space:]]*npm[[:space:]]+install([[:space:]]|$)'; then
+            echo "ERROR: THEME_BUILD looks wrong — it's '${THEME_BUILD}'."
+            echo "  THEME_BUILD should compile the theme (e.g. 'npm run build', 'gulp build')."
+            echo "  THEME_INSTALL is what installs dependencies (e.g. 'npm install')."
+            echo "  Fix THEME_BUILD in .circleci/env_vars.sh."
+            exit 1
+          fi
+
+          # Validate every `npm run <script>` referenced anywhere in
+          # THEME_BUILD actually exists in the theme's package.json. Catches
+          # typos AND missing scripts in chained commands like
+          # `npm ci && npm run build`. Scans the whole string, not just the
+          # leading command, so a typo at the end still fails the build.
+          if [ -f "${THEME_PATH}/package.json" ]; then
+            npm_scripts="$(printf '%s' "${THEME_BUILD}" | grep -oE 'npm[[:space:]]+run[[:space:]]+[A-Za-z0-9_:.-]+' | awk '{print $NF}' | sort -u || true)"
+            for s in ${npm_scripts}; do
+              if ! grep -qE "\"${s}\"[[:space:]]*:" "${THEME_PATH}/package.json"; then
+                echo "ERROR: THEME_BUILD references 'npm run ${s}' but no '${s}' script is defined in ${THEME_PATH}/package.json"
+                echo "Available scripts:"
+                grep -E '^\s+"[^"]+"\s*:\s*".*"' "${THEME_PATH}/package.json" | sed 's/^/  /' || true
+                exit 1
+              fi
+            done
+          fi
+
           echo "Required theme variables verified: THEME_PATH=${THEME_PATH}, THEME_INSTALL=${THEME_INSTALL}, THEME_BUILD=${THEME_BUILD}"
 
     # Use npm ci instead of npm install if you want to install dependencies
-    # according to the exact versions in package-lock.json
+    # according to the exact versions in package-lock.json.
+    # NOTE: THEME_INSTALL/THEME_BUILD are invoked via `bash -c` so shell
+    # operators inside the value (e.g. `npm ci && npm run build`) are
+    # parsed as operators, not passed as literal args. With bare
+    # `${THEME_INSTALL}` expansion they'd word-split and npm would silently
+    # receive `&&` as a positional argument and skip everything after it.
     - run:
         name: Installing NPM dependencies in theme
-        command: cd ${THEME_PATH} && ${THEME_INSTALL}
+        command: |
+          cd "${THEME_PATH}"
+          bash -c "${THEME_INSTALL}"
 
     # Your existing steps for building assets
     - run:
         name: Compiling SCSS to CSS, minifying JS
-        command: cd ${THEME_PATH} && ${THEME_BUILD}
+        command: |
+          cd "${THEME_PATH}"
+          bash -c "${THEME_BUILD}"
 
     # Diagnostic: prove the build produced files before we try to ship them.
     # If styles ever go missing from a deploy, this output is the first
