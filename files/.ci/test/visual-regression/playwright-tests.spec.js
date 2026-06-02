@@ -53,14 +53,34 @@ if (!fs.existsSync(ENV.ARTIFACTS_DIR)) {
   console.log(`Created artifacts directory at: ${ENV.ARTIFACTS_DIR}`);
 }
 
-// Log the configuration
-console.log("Test configuration:");
-console.log(`Testing URL: ${ENV.TESTING_URL}`);
-console.log(`Artifacts directory: ${ENV.ARTIFACTS_DIR}`);
-console.log(`CI Build: ${ENV.CI_BUILD_URL}`);
-console.log(
-  `Visual regression testing enabled: ${ENV.VISUAL_REGRESSION_ENABLED}`
+// Log the configuration ONCE per CI run, not once per worker × retry.
+// Playwright spawns a fresh node process per worker (and on retry), so
+// any unguarded top-level console.log fires N×retries times, flooding
+// the CI log with duplicate "Test configuration / Loaded N routes"
+// blocks between every test. We gate on a tmp marker file so only the
+// first process in the CI run emits the diagnostics.
+const STARTUP_LOG_MARKER = path.join(
+  process.env.RUNNER_TEMP || process.env.TMPDIR || "/tmp",
+  `pw-vr-startup-${process.env.CIRCLE_BUILD_NUM || process.ppid || "local"}.lock`
 );
+const SHOULD_LOG_STARTUP = (() => {
+  try {
+    fs.writeFileSync(STARTUP_LOG_MARKER, String(process.pid), { flag: "wx" });
+    return true;
+  } catch (_) {
+    return false;
+  }
+})();
+
+if (SHOULD_LOG_STARTUP) {
+  console.log("Test configuration:");
+  console.log(`Testing URL: ${ENV.TESTING_URL}`);
+  console.log(`Artifacts directory: ${ENV.ARTIFACTS_DIR}`);
+  console.log(`CI Build: ${ENV.CI_BUILD_URL}`);
+  console.log(
+    `Visual regression testing enabled: ${ENV.VISUAL_REGRESSION_ENABLED}`
+  );
+}
 
 function resolveTestRoutesPath() {
   const candidateRoots = [
@@ -128,17 +148,15 @@ try {
   const testRoutesPath = resolveTestRoutesPath();
 
   if (testRoutesPath) {
-    console.log(`Found test_routes.json at: ${testRoutesPath}`);
+    if (SHOULD_LOG_STARTUP) {
+      console.log(`Found test_routes.json at: ${testRoutesPath}`);
+    }
     const routesData = JSON.parse(fs.readFileSync(testRoutesPath, "utf8"));
 
-    // Handle the new JSON structure with routes and hideSelectors
-    // Using the global hideSelectors array - no let declaration here
     hideSelectors = [];
 
     if (routesData.routes && typeof routesData.routes === "object") {
-      // Use the routes object for test paths
       paths = Object.entries(routesData.routes).map(([name, url]) => {
-        // Remove domain part if present, we only need the path
         const parsedUrl = new URL(
           url.startsWith("http") ? url : `http://example.com${url}`
         );
@@ -147,11 +165,8 @@ try {
           url: parsedUrl.pathname + parsedUrl.search,
         };
       });
-      console.log(`✅ Loaded ${paths.length} test routes from routes object`);
     } else {
-      // Legacy format - directly use the JSON object as routes
       paths = Object.entries(routesData).map(([name, url]) => {
-        // Remove domain part if present, we only need the path
         const parsedUrl = new URL(
           url.startsWith("http") ? url : `http://example.com${url}`
         );
@@ -160,20 +175,23 @@ try {
           url: parsedUrl.pathname + parsedUrl.search,
         };
       });
-      console.log(`✅ Loaded ${paths.length} test routes from legacy format`);
     }
 
-    // Get hide selectors if available
     if (routesData.hideSelectors && Array.isArray(routesData.hideSelectors)) {
       hideSelectors = routesData.hideSelectors;
-      console.log(
-        `✅ Loaded ${hideSelectors.length} selectors to hide during testing`
-      );
     }
 
-    console.log(`✅ Loaded ${paths.length} test routes from ${testRoutesPath}`);
+    if (SHOULD_LOG_STARTUP) {
+      console.log(
+        `✅ Loaded ${paths.length} test routes (${hideSelectors.length} hide selectors)`
+      );
+    }
   } else {
-    console.warn("⚠️ No test_routes.json file found, using default test paths");
+    if (SHOULD_LOG_STARTUP) {
+      console.warn(
+        "⚠️ No test_routes.json file found, using default test paths"
+      );
+    }
     paths = [
       { name: "homepage", url: "/" },
       { name: "about", url: "/about" },
@@ -198,40 +216,18 @@ function ensureDirectoryExists(dir) {
 const screenshotDir = path.join(process.cwd(), "screenshots");
 ensureDirectoryExists(screenshotDir);
 
-// Helper function to pre-warm cache by pinging URLs
-async function preWarmCache(url) {
-  // Using node-fetch to perform a simple GET request
-  console.log(`Pre-warming cache for: ${url}`);
-  try {
-    // Create a simple browser context just for warming up the cache
-    const browser = await require("playwright").chromium.launch();
-    const warmupContext = await browser.newContext();
-    const warmupPage = await warmupContext.newPage();
-
-    // Navigate to the URL and wait for the page to load
-    await warmupPage.goto(url, { waitUntil: "networkidle", timeout: 30000 });
-    console.log(`Successfully pre-warmed cache for: ${url}`);
-
-    // Close everything to free resources
-    await warmupPage.close();
-    await warmupContext.close();
-    await browser.close();
-  } catch (error) {
-    console.error(`Error pre-warming cache for ${url}: ${error.message}`);
-  }
-}
+// NOTE: We used to have a preWarmCache(url) helper here that launched
+// a separate chromium instance per route in beforeAll, navigated with
+// `networkidle`, then tore it down — only for the real test to immediately
+// `goto` the same URL with `networkidle` again. That paid the slow
+// page-load cost twice per route (5–30s each on cold Pantheon multidevs),
+// adding ~10–20 min to every run. Removed in favor of letting the test's
+// own goto() warm the cache. The bash `run-playwright` script still
+// curl-pings the multidev once at startup to wake the appserver.
 
 // Define test for each path
 paths.forEach(({ name, url }) => {
   test.describe(`Visual regression test for ${name}`, () => {
-    // Pre-warm caches before tests run
-    test.beforeAll(async () => {
-      // Pre-warm both reference and test URLs
-      await preWarmCache(`${ENV.TESTING_URL}${url}`);
-      // Add a delay to ensure caches are fully built
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-    });
-
     // Test each viewport
     ["mobile", "tablet", "desktop"].forEach((viewport) => {
       test(`${name} should look the same on ${viewport}`, async ({
@@ -259,7 +255,6 @@ paths.forEach(({ name, url }) => {
         // Second run without the flag will use MULTIDEV_SITE_URL (test)
         const urlToTest = ENV.TESTING_URL;
 
-        console.log(`Navigating to: ${urlToTest}${url}`);
         await testPage.goto(`${urlToTest}${url}`, {
           waitUntil: "networkidle",
           timeout: 30000, // Increase timeout for page load
@@ -288,20 +283,8 @@ paths.forEach(({ name, url }) => {
         // Use higher thresholds when retrying failed tests
         const isRetry = process.env.RETRY_WITH_HIGHER_THRESHOLD === "true";
 
-        // Log whether we're doing a regular test or a retry with higher thresholds
-        console.log(
-          `${
-            isRetry ? "RETRY with higher thresholds" : "Regular test"
-          } for ${name} on ${viewport}`
-        );
-
         // Hide elements based on the selectors defined in test_routes.json
         if (hideSelectors && hideSelectors.length > 0) {
-          console.log(
-            `Hiding ${hideSelectors.length} elements for visual testing`
-          );
-
-          // Create CSS to hide all specified selectors
           const hideSelectorsCSS = hideSelectors
             .map(
               (selector) =>
@@ -309,12 +292,10 @@ paths.forEach(({ name, url }) => {
             )
             .join("\n");
 
-          // Apply the hiding CSS
           await testPage.addStyleTag({
             content: hideSelectorsCSS,
           });
         } else {
-          // Fallback to just hiding the recaptcha if no hideSelectors are defined
           await testPage.addStyleTag({
             content: `
             .captcha-type-challenge--recaptcha {
@@ -325,10 +306,6 @@ paths.forEach(({ name, url }) => {
           });
         }
 
-        // Scroll the page up and down to trigger any scroll-based JavaScript events
-        console.log(
-          `Scrolling through page for ${name} on ${viewport} to trigger scroll events`
-        );
         await testPage.evaluate(() => {
           return new Promise((resolve) => {
             // Get the full page height

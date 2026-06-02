@@ -26,6 +26,14 @@ module.exports = defineConfig({
   },
   /* Run tests in files in parallel */
   fullyParallel: true,
+  /* Worker count. Default CircleCI runner (medium) is 2 vCPU/4GB RAM —
+   * 2 workers halves wall time without OOM on full-page screenshots.
+   * If you bump the resource_class to large+ you can safely raise this. */
+  workers: process.env.PLAYWRIGHT_WORKERS
+    ? parseInt(process.env.PLAYWRIGHT_WORKERS, 10)
+    : process.env.CI
+    ? 2
+    : undefined,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
   forbidOnly: !!process.env.CI,
   /* Retry failed tests in CI */

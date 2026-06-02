@@ -70,30 +70,37 @@ TEST_EXIT_CODE=$?
 if [ $TEST_EXIT_CODE -ne 0 ]; then
   echo ""
   echo "=========================================================="
-  echo "Tests failed. Running the visual comparison tests again with higher thresholds..."
+  echo "Tests failed. Re-running ONLY the failed tests with higher thresholds..."
+  echo "(Previously this re-ran all 66 tests — that turned a 33-min pass into"
+  echo " a 66+ min one. --last-failed scopes the retry to actual failures.)"
   echo "=========================================================="
-  
+
   echo "Test report contents:"
   ls -la test-results/
-  
-  # Look for diff files to identify which tests failed
+
+  # Look for diff files to identify which tests failed (informational only).
+  # Guard the pipeline with `|| true` so SIGPIPE from sed/uniq can't kill
+  # the script under `set -e`.
   echo ""
   echo "Failed tests (with visual differences):"
-  find test-results -name "*-diff.png" | sed 's/.*\([A-Za-z]\+-[a-z]\+\)-diff\.png.*/\1/' | sort | uniq
-  
+  find test-results -name "*-diff.png" 2>/dev/null \
+    | sed 's/.*\([A-Za-z]\+-[a-z]\+\)-diff\.png.*/\1/' \
+    | sort | uniq || true
+
   echo ""
   echo "=========================================================="
-  echo "Retrying failed tests with higher thresholds..."
+  echo "Retrying failed tests with higher thresholds (--last-failed)..."
   echo "=========================================================="
-  
-  # Take a simpler approach - just retry ALL tests with higher thresholds
-  # This ensures we won't miss any failures due to pattern matching issues
-  TESTING_URL=$MULTIDEV_SITE_URL RETRY_WITH_HIGHER_THRESHOLD=true npx playwright test
-  
-  # Store the exit code of the retry
+
+  # --last-failed reads test-results/.last-run.json from the previous run
+  # and runs only the failed specs. Cuts retry-pass wall time proportional
+  # to the failure ratio (e.g. 6 failed of 66 → 10x faster retry pass).
+  set +e
+  TESTING_URL=$MULTIDEV_SITE_URL RETRY_WITH_HIGHER_THRESHOLD=true \
+    npx playwright test --last-failed
   RETRY_EXIT_CODE=$?
-  
-  # Print a summary message based on the retry results
+  set -e
+
   if [ $RETRY_EXIT_CODE -eq 0 ]; then
     echo ""
     echo "=========================================================="
