@@ -49,6 +49,24 @@ PR_BASE_DIR="${PR_BASE_DIR:-/tmp/pr-base-config}"
 PROD_TMP="$(mktemp -d)"
 trap 'rm -rf "$PROD_TMP"' EXIT
 
+# Keep SSH non-interactive for terminus rsync. Each Pantheon environment has
+# its own appserver host (appserver.<env>.<id>.drush.in). A freshly-created
+# multidev's host key isn't in known_hosts yet, so the first rsync-over-SSH
+# upload otherwise blocks FOREVER on an interactive "yes/no" host-key prompt —
+# which in CI looks like a hang at "Uploading merged config". Pre-trust the
+# Pantheon host pattern so the connection proceeds unattended. Idempotent.
+mkdir -p "${HOME}/.ssh"
+if ! grep -qs 'drush\.in' "${HOME}/.ssh/config"; then
+  cat >> "${HOME}/.ssh/config" <<'SSHCFG'
+
+Host *.drush.in
+  StrictHostKeyChecking no
+  UserKnownHostsFile /dev/null
+  LogLevel ERROR
+SSHCFG
+  chmod 600 "${HOME}/.ssh/config"
+fi
+
 # Decide whether prod diverged from the PR's base for a PR-changed file —
 # i.e. a genuine conflict the dev should reconcile (both sides changed it),
 # as opposed to the dev simply editing a file prod left untouched.

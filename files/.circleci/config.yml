@@ -496,7 +496,7 @@ jobs:
   # readiness budget on a project that has no tests to run.
   behat_test:
     <<: *defaults
-    resource_class: small
+    resource_class: medium
     parallelism: 12
     steps:
     - checkout
