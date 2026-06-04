@@ -25,6 +25,21 @@ defaults: &defaults
     ADMIN_USERNAME: admin
 
 jobs:
+  # [job] Pre-flight guard: abort the pipeline early if Pantheon's multidev
+  # cap is reached, instead of failing deep inside the deploy after a full
+  # build. No-ops on the default branch (deploys to dev) and when no
+  # ticket/PR maps to a multidev. Tunables: MAX_MULTIDEVS, DEFAULT_BRANCH.
+  check_multidev_capacity:
+    <<: *defaults
+    resource_class: small
+    steps:
+    - checkout
+    - run:
+        name: Abort if Pantheon multidev capacity is reached
+        command: |
+          chmod +x ./.ci/scripts/check-multidev-capacity.sh
+          ./.ci/scripts/check-multidev-capacity.sh
+
   # Main build and deploy job
   build_and_deploy:
     <<: *defaults
@@ -482,6 +497,7 @@ jobs:
   behat_test:
     <<: *defaults
     resource_class: small
+    parallelism: 12
     steps:
     - checkout
     # [persist][vars] Pull the deploy env (multidev URL etc.) from the build job.
@@ -495,43 +511,90 @@ jobs:
             echo "No tests/behat directory in this project — skipping Behat."
             circleci-agent step halt
           fi
+    - run:
+        name: Start XVFB
+        command: |
+          export DISPLAY=:99.0
+          Xvfb :99 -screen 0 1280x1024x16 &
     # [vars] Load saved environment variables (MULTIDEV_SITE_URL, etc.).
     - run:
-        name: Load environment variables
+        name: Setting PHP vars
         command: |
-          if [ -f /tmp/workspace/env_vars.sh ]; then
-            echo "Loading environment variables from workspace..."
-            cat /tmp/workspace/env_vars.sh >> $BASH_ENV
-            source $BASH_ENV
-            echo "MULTIDEV_SITE_URL: $MULTIDEV_SITE_URL"
+          echo 'memory_limit = -1' | sudo tee -a /usr/local/etc/php/conf.d/docker-php-memlimit.ini
+          echo 'memory_limit = -1' | sudo tee -a /usr/local/etc/php/conf.d/memory.ini
+          echo "display_errors = On" | sudo tee /usr/local/etc/php/conf.d/display_errors.ini
+          echo "display_startup_errors = On" | sudo tee -a /usr/local/etc/php/conf.d/display_errors.ini
+          echo "error_reporting = E_ALL" | sudo tee -a /usr/local/etc/php/conf.d/display_errors.ini
+    - run:
+        name: Configuring Drupal
+        command: ./.ci/test/behat/configure-site
+    - run:
+        name: Create DB and import pre-installed database
+        command: |
+          dockerize -wait tcp://localhost:3306 -timeout 4m
+          mysql -h 127.0.0.1 -P 3306 -u root -proot -e "CREATE DATABASE circle_test;"
+          if [ -f ./tmp/behat-db-export/drupal-installed.sql.gz ]; then
+            echo "Importing pre-installed database (much faster than fresh install)..."
+            gunzip -c ./tmp/behat-db-export/drupal-installed.sql.gz | mysql -h 127.0.0.1 -P 3306 -u root -proot circle_test
+            echo "Database imported successfully"
+            # Clear cache after import
+            ./vendor/bin/drush cr
           else
-            echo "Warning: Environment variables file not found"
+            echo "WARNING: Pre-installed database not found, falling back to fresh install"
+            ./.ci/test/behat/install-drupal
           fi
-    # [guard] Make sure the multidev is serving before we test it.
     - run:
-        name: Check multidev is ready
-        command: |
-          chmod +x ./.ci/scripts/check-multidev.sh
-          ./.ci/scripts/check-multidev.sh
-    # [build] Restore composer cache from the build job and install dev deps
-    # (behat lives in require-dev).
-    - restore_cache:
-        keys:
-        - composer-cache-v1-{{ checksum "composer.lock" }}
+        name: Disable Hubspot module
+        command: ./vendor/bin/drush pm:uninstall hubspot -y || echo "Hubspot not enabled"
     - run:
-        name: Installing composer dependencies
-        command: |
-          if [ -f "composer.json" ]; then
-            composer install --no-ansi --no-interaction --optimize-autoloader --no-progress
-          else
-            echo "No composer.json found, skipping composer install."
-          fi
-    # [test] Run Behat against the live multidev.
+        name: Clear Drupal Cache
+        command: ./vendor/bin/drush cr
     - run:
-        name: Run Behat functional tests
+        name: Create artifact dir
+        command: cd /var/www/project && mkdir -p ./tests/behat/results && mkdir -p ./tests/behat/results/junit
+
+    - run:
+        name: Globbing Behat tests
         command: |
-          chmod +x ./.ci/test/functional/run-behat
-          ./.ci/test/functional/run-behat
+          echo $(circleci tests glob "tests/behat/features/*")
+          circleci tests glob "tests/behat/features/*" | xargs -n 1 echo
+    - run:
+        name: Setup Apache
+        command: |
+          [ -f /var/run/apache2/apache2.pid ] && sudo rm /var/run/apache2/apache2.pid
+          [ -f /var/lock/apache2/apache2.pid ] && sudo rm /var/lock/apache2/apache2.pid
+          sudo service apache2 start
+          echo 127.0.0.1 drupal-circleci-behat.localhost | sudo tee -a /etc/hosts
+          sudo service apache2 restart
+    - run:
+        name: Trigger page load to initialize H5P libraries
+        command: |
+          # Wait for Apache to be fully ready
+          sleep 2
+          # Make a request to the homepage to trigger Drupal bootstrap and H5P library initialization
+          curl -s -o /dev/null -w "%{http_code}" http://drupal-circleci-behat.localhost/ || echo "Page load triggered (exit code $?)"
+    # - run:
+    #     name: Run Behat Tests
+    #     command: ./.ci/test/behat/chrome.sh && ./vendor/bin/behat --config ./tests/behat/behat.yml --suite default --rerun --profile circleci -f pretty -o std -f junit -o ./tests/behat/results/junit/junit.xml
+    - run:
+        name: Split and run Behat tests
+        command: |
+          ./.ci/test/behat/chrome.sh
+          ./.ci/test/behat/run-tests-circle
+    - store_artifacts:
+        path: ./tests/behat/results
+        destination: artifacts
+    - store_test_results:
+        path: ./tests/behat/results
+    - store_artifacts:
+        path: /tmp/chrome.log
+        destination: artifact-files
+    - store_artifacts:
+        path: /tmp/test_messages.log
+        destination: behat-test-logs
+    - run:
+        name: Enable Hubspot module
+        command: ./vendor/bin/drush pm-enable hubspot -y
     # [notify] Notify Slack on failure
     - slack/notify:
         event: fail
@@ -542,8 +605,17 @@ jobs:
 workflows:
   build_test_notify:
     jobs:
+    # [job] Pre-flight multidev capacity gate (runs before everything else).
+    # Jira contexts let it comment on the ticket when it blocks the build.
+    - check_multidev_capacity:
+        context:
+        - GITHUB_TOKEN
+        - JIRA_API_TOKEN
+        - JIRA_WEBHOOK
     # [job] Primary build and deployment job
     - build_and_deploy:
+        requires:
+        - check_multidev_capacity
         context:
         - GITHUB_TOKEN
     # [job] Playwright visual regression tests
@@ -555,7 +627,8 @@ workflows:
         - SLACK_ACCESS_TOKEN
         - JIRA_WEBHOOK_URL
         # VRT login credentials for authenticated routes (auth:true in
-        # test_routes.json). Read at runtime as VRT_USERNAME / VRT_PASSWORD.
+        # test_routes.json). This context carries both VRT_USERNAME and
+        # VRT_PASSWORD, read at runtime by the Playwright login helper.
         - VRT_USERNAME
     # [job] Behat functional tests (self-skips when no tests/behat present)
     - behat_test:

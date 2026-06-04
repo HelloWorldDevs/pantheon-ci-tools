@@ -122,6 +122,13 @@ class Installer
             $sourceBase . '/scripts/check-multidev.sh',
             $destBase . '/.ci/scripts/check-multidev.sh'
         );
+        // Pre-flight guard that aborts the pipeline early when Pantheon's
+        // multidev cap is reached (runs before build_and_deploy), instead of
+        // failing deep inside the deploy after a full build.
+        $this->copyFile(
+            $sourceBase . '/scripts/check-multidev-capacity.sh',
+            $destBase . '/.ci/scripts/check-multidev-capacity.sh'
+        );
         // Behat runner. Always installed; the behat_test job self-skips
         // (circleci-agent step halt) when the project ships no tests/behat,
         // and the script itself no-ops if the directory is absent.
