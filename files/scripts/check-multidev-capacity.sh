@@ -23,7 +23,8 @@
 #
 # Tunables (env):
 #   MAX_MULTIDEVS    cap to enforce               (default 10)
-#   DEFAULT_BRANCH   branch that deploys to dev   (default master)
+#   DEFAULT_BRANCH   branch that deploys to dev   (auto-discovered from the
+#                    remote; override here; falls back to master)
 #   TERMINUS_SITE    Pantheon site machine name   (default: DEFAULT_SITE or repo name)
 #   TERMINUS_TOKEN   Pantheon machine token       (required to query)
 #
@@ -33,8 +34,29 @@
 set -eo pipefail
 
 MAX_MULTIDEVS="${MAX_MULTIDEVS:-10}"
-DEFAULT_BRANCH="${DEFAULT_BRANCH:-master}"
 TERMINUS_SITE="${TERMINUS_SITE:-${DEFAULT_SITE:-$CIRCLE_PROJECT_REPONAME}}"
+
+# Determine the repository's default branch (the one that deploys to dev and
+# therefore consumes no multidev slot). Resolution order:
+#   1. Explicit DEFAULT_BRANCH env var (configurable escape hatch).
+#   2. Discovered from the remote — origin/HEAD if known locally, else asking
+#      the remote directly. This keeps the tool correct on repos that use
+#      `main`, `production`, etc. without any per-project configuration.
+#   3. Fall back to "master".
+detect_default_branch() {
+  if [ -n "${DEFAULT_BRANCH:-}" ]; then
+    printf '%s\n' "$DEFAULT_BRANCH"
+    return
+  fi
+  local b=""
+  b="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"
+  if [ -z "$b" ]; then
+    b="$(git remote show origin 2>/dev/null | sed -n 's/.*HEAD branch: //p')"
+  fi
+  printf '%s\n' "${b:-master}"
+}
+DEFAULT_BRANCH="$(detect_default_branch)"
+echo "Default branch: $DEFAULT_BRANCH"
 
 # Default-branch builds deploy to dev — no multidev slot consumed.
 if [[ "$CIRCLE_BRANCH" == "$DEFAULT_BRANCH" ]]; then
