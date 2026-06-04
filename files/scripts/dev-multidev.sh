@@ -28,6 +28,24 @@ else
   fi
 fi
 
+# Strip nested .git directories left by Composer "source" installs. Dev/@dev
+# branch versions (e.g. drupal/pdf:^1.0@dev) are git-cloned into place, not
+# dist-unzipped, so they carry their own .git. The build:env:push below runs
+# `git add` over the contrib/vendor tree and records any package with a nested
+# .git as a gitlink (embedded repo) instead of committing its files — so that
+# package's code never reaches the Pantheon artifact and `drush config:import`
+# later fails with "Unable to install the <module> module since it does not
+# exist". -mindepth 2 protects the project's own top-level .git while removing
+# every nested one. Framework-agnostic (covers vendor/, web/, html/, etc.).
+echo "Stripping nested .git directories so source-installed packages commit their files..."
+NESTED_GIT=$(find . -mindepth 2 -name .git -prune 2>/dev/null || true)
+if [ -n "$NESTED_GIT" ]; then
+  echo "$NESTED_GIT" | sed 's/^/  removing: /'
+  find . -mindepth 2 -name .git -prune -exec rm -rf {} + 2>/dev/null || true
+else
+  echo "  none found."
+fi
+
 # Check if the environment exists and push or create accordingly
 if [[ "$TERMINUS_ENV" == "dev" ]] || terminus env:list "$TERMINUS_SITE" --field=id | grep -q "$TERMINUS_ENV"; then
   echo "Pushing to existing environment: $TERMINUS_ENV..."
