@@ -423,6 +423,15 @@ jobs:
             echo "Warning: Environment variables file not found"
           fi
 
+    # [guard] Wait for the multidev to wake before hitting it. Pantheon
+    # appservers cold-start in 30–60s; without this the first screenshots
+    # race the spin-up and flake. Runs first so the wait is explicit.
+    - run:
+        name: Check multidev is ready
+        command: |
+          chmod +x ./.ci/scripts/check-multidev.sh
+          ./.ci/scripts/check-multidev.sh
+
     # [test] Run visual regression tests with Playwright
     - run:
         name: Run Playwright visual regression tests
@@ -462,6 +471,73 @@ jobs:
         debug: true
         pipeline_id: << pipeline.id >>
         pipeline_number: << pipeline.number >>
+  # Behat functional tests job.
+  #
+  # This job ALWAYS exists in the pipeline, but self-skips via
+  # `circleci-agent step halt` when the project ships no tests/behat
+  # directory — so the tool adapts automatically without re-running
+  # composer when a project adds or removes Behat coverage. The skip
+  # gate runs before the multidev wait so we never burn the ~5-minute
+  # readiness budget on a project that has no tests to run.
+  behat_test:
+    <<: *defaults
+    resource_class: small
+    steps:
+    - checkout
+    # [persist][vars] Pull the deploy env (multidev URL etc.) from the build job.
+    - attach_workspace:
+        at: /tmp/workspace
+    # [gate] Skip the whole job unless the project ships Behat tests.
+    - run:
+        name: Skip if project has no tests/behat
+        command: |
+          if [ ! -d tests/behat ]; then
+            echo "No tests/behat directory in this project — skipping Behat."
+            circleci-agent step halt
+          fi
+    # [vars] Load saved environment variables (MULTIDEV_SITE_URL, etc.).
+    - run:
+        name: Load environment variables
+        command: |
+          if [ -f /tmp/workspace/env_vars.sh ]; then
+            echo "Loading environment variables from workspace..."
+            cat /tmp/workspace/env_vars.sh >> $BASH_ENV
+            source $BASH_ENV
+            echo "MULTIDEV_SITE_URL: $MULTIDEV_SITE_URL"
+          else
+            echo "Warning: Environment variables file not found"
+          fi
+    # [guard] Make sure the multidev is serving before we test it.
+    - run:
+        name: Check multidev is ready
+        command: |
+          chmod +x ./.ci/scripts/check-multidev.sh
+          ./.ci/scripts/check-multidev.sh
+    # [build] Restore composer cache from the build job and install dev deps
+    # (behat lives in require-dev).
+    - restore_cache:
+        keys:
+        - composer-cache-v1-{{ checksum "composer.lock" }}
+    - run:
+        name: Installing composer dependencies
+        command: |
+          if [ -f "composer.json" ]; then
+            composer install --no-ansi --no-interaction --optimize-autoloader --no-progress
+          else
+            echo "No composer.json found, skipping composer install."
+          fi
+    # [test] Run Behat against the live multidev.
+    - run:
+        name: Run Behat functional tests
+        command: |
+          chmod +x ./.ci/test/functional/run-behat
+          ./.ci/test/functional/run-behat
+    # [notify] Notify Slack on failure
+    - slack/notify:
+        event: fail
+        channel: C06G970M5PF
+        template: basic_fail_1
+
 # [workflow] Main build, test, and notification workflow
 workflows:
   build_test_notify:
@@ -478,3 +554,13 @@ workflows:
         context:
         - SLACK_ACCESS_TOKEN
         - JIRA_WEBHOOK_URL
+        # VRT login credentials for authenticated routes (auth:true in
+        # test_routes.json). Read at runtime as VRT_USERNAME / VRT_PASSWORD.
+        - VRT_USERNAME
+    # [job] Behat functional tests (self-skips when no tests/behat present)
+    - behat_test:
+        requires:
+        - build_and_deploy
+        context:
+        - GITHUB_TOKEN
+        - SLACK_ACCESS_TOKEN

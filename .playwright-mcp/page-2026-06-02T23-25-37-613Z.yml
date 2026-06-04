@@ -1,0 +1,1254 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e4]:
+      - link [ref=e5] [cursor=pointer]:
+        - /url: "#"
+        - img [ref=e6]
+      - link [ref=e7] [cursor=pointer]:
+        - /url: /
+        - img [ref=e8]
+      - navigation "Main navigation" [ref=e9]:
+        - heading "Main navigation" [level=2] [ref=e10]
+        - list [ref=e11]:
+          - listitem [ref=e12]:
+            - link "Products" [ref=e13] [cursor=pointer]:
+              - /url: /products
+            - list [ref=e14]:
+              - listitem [ref=e15]:
+                - link "Igor Pro" [ref=e16] [cursor=pointer]:
+                  - /url: /products/igorpro
+                - list [ref=e17]:
+                  - listitem [ref=e18]:
+                    - link "Igor Pro 10 Highlights" [ref=e19] [cursor=pointer]:
+                      - /url: /products/igorpro/igor-10-highlights
+                  - listitem [ref=e20]:
+                    - link "New Features 10" [ref=e21] [cursor=pointer]:
+                      - /url: /products/igorpro/newfeatures10
+                  - listitem [ref=e22]:
+                    - link "New Features" [ref=e23] [cursor=pointer]:
+                      - /url: /products/igorpro/newfeatures9
+                    - list [ref=e24]:
+                      - listitem [ref=e25]:
+                        - link "How to update" [ref=e26] [cursor=pointer]:
+                          - /url: /products/igorpro/newfeatures/update
+                      - listitem [ref=e27]:
+                        - link "Previous versions" [ref=e28] [cursor=pointer]:
+                          - /url: /products/igorpro/newfeatures/previous
+                        - list [ref=e29]:
+                          - listitem [ref=e30]:
+                            - link "Igor Pro 9 Highlights" [ref=e31] [cursor=pointer]:
+                              - /url: /products/igorpro/igor-9-highlights
+                          - listitem [ref=e32]:
+                            - link "Igor Pro 9 Changed and New Features" [ref=e33] [cursor=pointer]:
+                              - /url: /products/igorpro/newfeatures/whatsnew9
+                          - listitem [ref=e34]:
+                            - link "Igor Pro 8 Highlights" [ref=e35] [cursor=pointer]:
+                              - /url: /igor-8-highlights
+                          - listitem [ref=e36]:
+                            - link "Igor Pro 8 Changed and New Features" [ref=e37] [cursor=pointer]:
+                              - /url: /products/igorpro/newfeatures/whatsnew8
+                          - listitem [ref=e38]:
+                            - link "Igor Pro 7 Changed and New Features" [ref=e39] [cursor=pointer]:
+                              - /url: /products/igorpro/newfeatures/previous/whatsnew7
+                          - listitem [ref=e40]:
+                            - link "Igor 6.3 reasons to upgrade" [ref=e41] [cursor=pointer]:
+                              - /url: /products/igorpro/newfeatures/previous/upgradereasons63
+                          - listitem [ref=e42]:
+                            - link "Igor 6.3 new features" [ref=e43] [cursor=pointer]:
+                              - /url: /products/igorpro/newfeatures/previous/whatsnew63
+                          - listitem [ref=e44]:
+                            - link "Igor 6.3 changes since release" [ref=e45] [cursor=pointer]:
+                              - /url: /products/igorpro/newfeatures/previous/since63
+                          - listitem [ref=e46]:
+                            - link "Igor 6.2 new features" [ref=e47] [cursor=pointer]:
+                              - /url: /products/igorpro/newfeatures/previous/whatsnew62
+                          - listitem [ref=e48]:
+                            - link "Igor 6.2 changes since release" [ref=e49] [cursor=pointer]:
+                              - /url: /products/igorpro/newfeatures/previous/since62
+                          - listitem [ref=e50]:
+                            - link "Igor 6.1 new features" [ref=e51] [cursor=pointer]:
+                              - /url: /products/igorpro/newfeatures/previous/whatsnew61details
+                          - listitem [ref=e52]:
+                            - link "Igor 6.1 changes since release" [ref=e53] [cursor=pointer]:
+                              - /url: /products/igorpro/newfeatures/previous/since61
+                          - listitem [ref=e54]:
+                            - link "Igor 6 New Features" [ref=e55] [cursor=pointer]:
+                              - /url: /products/igorpro/newfeatures/previous/whatsnew6details
+                          - listitem [ref=e56]:
+                            - link "Igor 6 Release Notes" [ref=e57] [cursor=pointer]:
+                              - /url: /products/igorpro/newfeatures/previous/since6
+                  - listitem [ref=e58]:
+                    - link "Unique Hybrid Interface" [ref=e59] [cursor=pointer]:
+                      - /url: /products/igorpro/Interface
+                  - listitem [ref=e60]:
+                    - link "Data Access" [ref=e61] [cursor=pointer]:
+                      - /url: /products/igorpro/dataaccess
+                    - list [ref=e62]:
+                      - listitem [ref=e63]:
+                        - link "File Formats" [ref=e64] [cursor=pointer]:
+                          - /url: /products/igorpro/dataaccess/fileformats
+                      - listitem [ref=e65]:
+                        - link "Binary Files" [ref=e66] [cursor=pointer]:
+                          - /url: /products/igorpro/dataaccess/binaryfiles
+                      - listitem [ref=e67]:
+                        - link "HDF5" [ref=e68] [cursor=pointer]:
+                          - /url: /products/igorpro/dataaccess/hdf5
+                      - listitem [ref=e69]:
+                        - link "Hardware Data Acquisition" [ref=e70] [cursor=pointer]:
+                          - /url: /products/igorpro/dataaccess/hardwaredata
+                      - listitem [ref=e71]:
+                        - link "Micro-Manager" [ref=e72] [cursor=pointer]:
+                          - /url: /products/igorpro/dataaccess/MMI
+                      - listitem [ref=e73]:
+                        - link "Export Formats" [ref=e74] [cursor=pointer]:
+                          - /url: /products/igorpro/dataaccess/exportformats
+                      - listitem [ref=e75]:
+                        - link "Internet Support" [ref=e76] [cursor=pointer]:
+                          - /url: /products/igorpro/dataaccess/internetsupport
+                      - listitem [ref=e77]:
+                        - link "SQL Databases" [ref=e78] [cursor=pointer]:
+                          - /url: /products/igorpro/dataaccess/sql
+                      - listitem [ref=e79]:
+                        - link "External Access" [ref=e80] [cursor=pointer]:
+                          - /url: /products/igorpro/dataaccess/externalaccess
+                  - listitem [ref=e81]:
+                    - link "Data Storage" [ref=e82] [cursor=pointer]:
+                      - /url: /products/igorpro/datastorage
+                    - list [ref=e83]:
+                      - listitem [ref=e84]:
+                        - link "Data Folders" [ref=e85] [cursor=pointer]:
+                          - /url: /products/igorpro/datastorage/datafolders
+                  - listitem [ref=e86]:
+                    - link "Creating Graphics" [ref=e87] [cursor=pointer]:
+                      - /url: /products/igorpro/creatinggraphs
+                    - list [ref=e88]:
+                      - listitem [ref=e89]:
+                        - link "2D graphs" [ref=e90] [cursor=pointer]:
+                          - /url: /products/igorpro/creatinggraphs/2dgraphs
+                        - list [ref=e91]:
+                          - listitem [ref=e92]:
+                            - link "XY plots" [ref=e93] [cursor=pointer]:
+                              - /url: /products/igorpro/creatinggraphs/2dgraphs/linegraphs
+                            - list [ref=e94]:
+                              - listitem [ref=e95]:
+                                - link "New graph details" [ref=e96] [cursor=pointer]:
+                                  - /url: /products/igorpro/creatinggraphs/2dgraphs/linegraphs/newgraph
+                              - listitem [ref=e97]:
+                                - link "Trace settings" [ref=e98] [cursor=pointer]:
+                                  - /url: /products/igorpro/creatinggraphs/2dgraphs/linegraphs/graphmodes
+                              - listitem [ref=e99]:
+                                - link "Axis settings" [ref=e100] [cursor=pointer]:
+                                  - /url: /products/igorpro/creatinggraphs/2dgraphs/linegraphs/axis
+                          - listitem [ref=e101]:
+                            - link "Category Plots" [ref=e102] [cursor=pointer]:
+                              - /url: /products/igorpro/creatinggraphs/2dgraphs/catplot
+                          - listitem [ref=e103]:
+                            - link "Contour Plots" [ref=e104] [cursor=pointer]:
+                              - /url: /products/igorpro/creatinggraphs/2dgraphs/contourgraphs
+                          - listitem [ref=e105]:
+                            - link "Flexible axes" [ref=e106] [cursor=pointer]:
+                              - /url: /products/igorpro/creatinggraphs/2dgraphs/axes
+                          - listitem [ref=e107]:
+                            - link "Animations" [ref=e108] [cursor=pointer]:
+                              - /url: /products/igorpro/creatinggraphs/2dgraphs/animations
+                          - listitem [ref=e109]:
+                            - link "Preferences and templates" [ref=e110] [cursor=pointer]:
+                              - /url: /products/igorpro/creatinggraphs/2dgraphs/preferences
+                      - listitem [ref=e111]:
+                        - link "Page Layouts" [ref=e112] [cursor=pointer]:
+                          - /url: /products/igorpro/creatinggraphs/pagelayouts
+                      - listitem [ref=e113]:
+                        - link "Tables" [ref=e114] [cursor=pointer]:
+                          - /url: /products/igorpro/creatinggraphs/tables
+                      - listitem [ref=e115]:
+                        - link "Drawing tools" [ref=e116] [cursor=pointer]:
+                          - /url: /products/igorpro/creatinggraphs/drawingtools
+                      - listitem [ref=e117]:
+                        - link "Annotations" [ref=e118] [cursor=pointer]:
+                          - /url: /products/igorpro/creatinggraphs/annotations
+                      - listitem [ref=e119]:
+                        - link "Color Tables" [ref=e120] [cursor=pointer]:
+                          - /url: /products/igorpro/creatinggraphs/colortab
+                      - listitem [ref=e121]:
+                        - link "Subwindows" [ref=e122] [cursor=pointer]:
+                          - /url: /products/igorpro/creatinggraphs/subwindows
+                      - listitem [ref=e123]:
+                        - link "3D and Volume" [ref=e124] [cursor=pointer]:
+                          - /url: /products/igorpro/creatinggraphs/3dandvolume
+                        - list [ref=e125]:
+                          - listitem [ref=e126]:
+                            - link "Surface Plots" [ref=e127] [cursor=pointer]:
+                              - /url: /products/igorpro/creatinggraphs/3dandvolume/surface
+                          - listitem [ref=e128]:
+                            - link "Path and Ribbon Plots" [ref=e129] [cursor=pointer]:
+                              - /url: /products/igorpro/creatinggraphs/3dandvolume/path
+                          - listitem [ref=e130]:
+                            - link "3D Scatter" [ref=e131] [cursor=pointer]:
+                              - /url: /products/igorpro/creatinggraphs/3dandvolume/scatter
+                          - listitem [ref=e132]:
+                            - link "3D Object Plots" [ref=e133] [cursor=pointer]:
+                              - /url: /products/igorpro/creatinggraphs/3dandvolume/objects
+                          - listitem [ref=e134]:
+                            - link "Isosurfaces" [ref=e135] [cursor=pointer]:
+                              - /url: /products/igorpro/creatinggraphs/3dandvolume/isosurface
+                          - listitem [ref=e136]:
+                            - link "Voxelgrams" [ref=e137] [cursor=pointer]:
+                              - /url: /products/igorpro/creatinggraphs/3dandvolume/voxelgrams
+                          - listitem [ref=e138]:
+                            - link "Volume Slices" [ref=e139] [cursor=pointer]:
+                              - /url: /products/igorpro/creatinggraphs/3dandvolume/slicer
+                          - listitem [ref=e140]:
+                            - link "3D Animations" [ref=e141] [cursor=pointer]:
+                              - /url: /products/igorpro/creatinggraphs/3dandvolume/animations
+                      - listitem [ref=e142]:
+                        - link "Exporting Graphics" [ref=e143] [cursor=pointer]:
+                          - /url: /products/igorpro/creatinggraphs/exportinggraphics
+                  - listitem [ref=e144]:
+                    - link "Image Processing" [ref=e145] [cursor=pointer]:
+                      - /url: /products/igorpro/imageprocessing
+                    - list [ref=e146]:
+                      - listitem [ref=e147]:
+                        - link "Image Acquisition" [ref=e148] [cursor=pointer]:
+                          - /url: /products/igorpro/imageprocessing/imageacquisition
+                      - listitem [ref=e149]:
+                        - link "ROI" [ref=e150] [cursor=pointer]:
+                          - /url: /products/igorpro/imageprocessing/roi
+                      - listitem [ref=e151]:
+                        - link "Image Transforms" [ref=e152] [cursor=pointer]:
+                          - /url: /products/igorpro/imageprocessing/imagetransforms
+                        - list [ref=e153]:
+                          - listitem [ref=e154]:
+                            - link "Mathematical Operations" [ref=e155] [cursor=pointer]:
+                              - /url: /products/igorpro/imageprocessing/imagetransforms/arithmetic
+                          - listitem [ref=e156]:
+                            - link "Histogram Modifications" [ref=e157] [cursor=pointer]:
+                              - /url: /products/igorpro/imageprocessing/imagetransforms/histmodification
+                          - listitem [ref=e158]:
+                            - link "Image Interpolation" [ref=e159] [cursor=pointer]:
+                              - /url: /products/igorpro/imageprocessing/imagetransforms/imageinterpolation
+                          - listitem [ref=e160]:
+                            - link "Image Registration" [ref=e161] [cursor=pointer]:
+                              - /url: /products/igorpro/imageprocessing/imagetransforms/imageregistration
+                          - listitem [ref=e162]:
+                            - link "Background Removal" [ref=e163] [cursor=pointer]:
+                              - /url: /products/igorpro/imageprocessing/imagetransforms/removebackground
+                          - listitem [ref=e164]:
+                            - link "Image Rotation" [ref=e165] [cursor=pointer]:
+                              - /url: /products/igorpro/imageprocessing/imagetransforms/imagerotation
+                      - listitem [ref=e166]:
+                        - link "Color Spaces" [ref=e167] [cursor=pointer]:
+                          - /url: /products/igorpro/imageprocessing/colortransforms
+                      - listitem [ref=e168]:
+                        - link "Thresholding" [ref=e169] [cursor=pointer]:
+                          - /url: /products/igorpro/imageprocessing/thresholding
+                      - listitem [ref=e170]:
+                        - link "Localized Filters" [ref=e171] [cursor=pointer]:
+                          - /url: /products/igorpro/imageprocessing/convolutionfilters
+                      - listitem [ref=e172]:
+                        - link "Edge Detectors" [ref=e173] [cursor=pointer]:
+                          - /url: /products/igorpro/imageprocessing/edgedetectors
+                      - listitem [ref=e174]:
+                        - link "Morphology" [ref=e175] [cursor=pointer]:
+                          - /url: /products/igorpro/imageprocessing/morphologicaloperations
+                      - listitem [ref=e176]:
+                        - link "Image Analysis" [ref=e177] [cursor=pointer]:
+                          - /url: /products/igorpro/imageprocessing/imageanalysis
+                        - list [ref=e178]:
+                          - listitem [ref=e179]:
+                            - link "Image Statistics" [ref=e180] [cursor=pointer]:
+                              - /url: /products/igorpro/imageprocessing/imageanalysis/imagestats
+                          - listitem [ref=e181]:
+                            - link "Line Profile" [ref=e182] [cursor=pointer]:
+                              - /url: /products/igorpro/imageprocessing/imageanalysis/imagelineprofile
+                          - listitem [ref=e183]:
+                            - link "Particle Analysis" [ref=e184] [cursor=pointer]:
+                              - /url: /products/igorpro/imageprocessing/imageanalysis/particleanalysis
+                          - listitem [ref=e185]:
+                            - link "Image Snake" [ref=e186] [cursor=pointer]:
+                              - /url: /products/igorpro/imageprocessing/imageanalysis/ImageSnake
+                  - listitem [ref=e187]:
+                    - link "Data Analysis" [ref=e188] [cursor=pointer]:
+                      - /url: /products/igorpro/dataanalysis
+                    - list [ref=e189]:
+                      - listitem [ref=e190]:
+                        - link "Curve Fitting" [ref=e191] [cursor=pointer]:
+                          - /url: /products/igorpro/dataanalysis/curvefitting
+                        - list [ref=e192]:
+                          - listitem [ref=e193]:
+                            - link "Built-in types" [ref=e194] [cursor=pointer]:
+                              - /url: /products/igorpro/dataanalysis/curvefitting/builtintypes
+                          - listitem [ref=e195]:
+                            - link "User-defined" [ref=e196] [cursor=pointer]:
+                              - /url: /products/igorpro/dataanalysis/curvefitting/userdefined
+                          - listitem [ref=e197]:
+                            - link "Constraints" [ref=e198] [cursor=pointer]:
+                              - /url: /products/igorpro/dataanalysis/curvefitting/constraints
+                          - listitem [ref=e199]:
+                            - link "Errors in Variables" [ref=e200] [cursor=pointer]:
+                              - /url: /products/igorpro/dataanalysis/curvefitting/errorsinvariables
+                          - listitem [ref=e201]:
+                            - link "Global Fitting" [ref=e202] [cursor=pointer]:
+                              - /url: /products/igorpro/dataanalysis/curvefitting/globalfitting
+                          - listitem [ref=e203]:
+                            - link "Multidimensional" [ref=e204] [cursor=pointer]:
+                              - /url: /products/igorpro/dataanalysis/curvefitting/multidimensional
+                      - listitem [ref=e205]:
+                        - link "Peak Analysis" [ref=e206] [cursor=pointer]:
+                          - /url: /products/igorpro/dataanalysis/peakanalysis
+                        - list [ref=e207]:
+                          - listitem [ref=e208]:
+                            - link "Peak finding" [ref=e209] [cursor=pointer]:
+                              - /url: /products/igorpro/dataanalysis/peakanalysis/peakfinding
+                          - listitem [ref=e210]:
+                            - link "Baseline removal" [ref=e211] [cursor=pointer]:
+                              - /url: /products/igorpro/dataanalysis/peakanalysis/baselineremoval
+                          - listitem [ref=e212]:
+                            - link "Multi-peak fitting" [ref=e213] [cursor=pointer]:
+                              - /url: /products/igorpro/dataanalysis/peakanalysis/multipeakfitting
+                      - listitem [ref=e214]:
+                        - link "Signal Processing" [ref=e215] [cursor=pointer]:
+                          - /url: /products/igorpro/dataanalysis/signalprocessing
+                        - list [ref=e216]:
+                          - listitem [ref=e217]:
+                            - link "Fourier transforms" [ref=e218] [cursor=pointer]:
+                              - /url: /products/igorpro/dataanalysis/signalprocessing/fouriertransforms
+                          - listitem [ref=e219]:
+                            - link "Spectral windowing" [ref=e220] [cursor=pointer]:
+                              - /url: /products/igorpro/dataanalysis/signalprocessing/spectralwindowing
+                          - listitem [ref=e221]:
+                            - link "Power spectra" [ref=e222] [cursor=pointer]:
+                              - /url: /products/igorpro/dataanalysis/signalprocessing/powerspectra
+                          - listitem [ref=e223]:
+                            - link "Hilbert transforms" [ref=e224] [cursor=pointer]:
+                              - /url: /products/igorpro/dataanalysis/signalprocessing/hilberttransform
+                          - listitem [ref=e225]:
+                            - link "Time frequency analysis" [ref=e226] [cursor=pointer]:
+                              - /url: /products/igorpro/dataanalysis/signalprocessing/timefrequency
+                          - listitem [ref=e227]:
+                            - link "Digital filters" [ref=e228] [cursor=pointer]:
+                              - /url: /products/igorpro/dataanalysis/signalprocessing/digitalfilters
+                          - listitem [ref=e229]:
+                            - link "Smoothing" [ref=e230] [cursor=pointer]:
+                              - /url: /products/igorpro/dataanalysis/signalprocessing/smoothing
+                          - listitem [ref=e231]:
+                            - link "Convolution and Correlation" [ref=e232] [cursor=pointer]:
+                              - /url: /products/igorpro/dataanalysis/signalprocessing/convolution
+                          - listitem [ref=e233]:
+                            - link "Level detection" [ref=e234] [cursor=pointer]:
+                              - /url: /products/igorpro/dataanalysis/signalprocessing/leveldetection
+                      - listitem [ref=e235]:
+                        - link "Statistics" [ref=e236] [cursor=pointer]:
+                          - /url: /products/igorpro/dataanalysis/statistics
+                        - list [ref=e237]:
+                          - listitem [ref=e238]:
+                            - link "Statistical Tests" [ref=e239] [cursor=pointer]:
+                              - /url: /products/igorpro/dataanalysis/statistics/tests
+                            - list [ref=e240]:
+                              - listitem [ref=e241]:
+                                - link "Angular Distribution Tests" [ref=e242] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp1
+                              - listitem [ref=e243]:
+                                - link "ANOVA1 Tests" [ref=e244] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/Statistics_pxp2
+                              - listitem [ref=e245]:
+                                - link "ANOVA2(NR) Tests" [ref=e246] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp3
+                              - listitem [ref=e247]:
+                                - link "ANOVA2(RM) Tests" [ref=e248] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp4
+                              - listitem [ref=e249]:
+                                - link "Chi-Squared Tests" [ref=e250] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp5
+                              - listitem [ref=e251]:
+                                - link "Angular-Correlation Tests" [ref=e252] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp6
+                              - listitem [ref=e253]:
+                                - link "Circular Means Tests" [ref=e254] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp7
+                              - listitem [ref=e255]:
+                                - link "Circular Moment Tests" [ref=e256] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp8
+                              - listitem [ref=e257]:
+                                - link "Circular Two Sample Tests" [ref=e258] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp9
+                              - listitem [ref=e259]:
+                                - link "Cochran Test" [ref=e260] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp10
+                              - listitem [ref=e261]:
+                                - link "Dunnett Test" [ref=e262] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp11
+                              - listitem [ref=e263]:
+                                - link "Friedman Test" [ref=e264] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp12
+                              - listitem [ref=e265]:
+                                - link "F Test" [ref=e266] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp13
+                              - listitem [ref=e267]:
+                                - link "Hodges-Ajne Test" [ref=e268] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp14
+                              - listitem [ref=e269]:
+                                - link "Jarque-Bera Simulation" [ref=e270] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp15
+                              - listitem [ref=e271]:
+                                - link "Kendall's Tau" [ref=e272] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp16
+                              - listitem [ref=e273]:
+                                - link "Kolmogorov-Smirnov Test" [ref=e274] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp17
+                              - listitem [ref=e275]:
+                                - link "Kruskal-Wallis Test" [ref=e276] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp18
+                              - listitem [ref=e277]:
+                                - link "Linear Correlation" [ref=e278] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp19
+                              - listitem [ref=e279]:
+                                - link "Linear Regression" [ref=e280] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp20
+                              - listitem [ref=e281]:
+                                - link "Multi-Correlations" [ref=e282] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp21
+                              - listitem [ref=e283]:
+                                - link "NP Multi-Comparison" [ref=e284] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp22
+                              - listitem [ref=e285]:
+                                - link "Nominal Serial Randomness" [ref=e286] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp23
+                              - listitem [ref=e287]:
+                                - link "Spearman Rank Correlation" [ref=e288] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp24
+                              - listitem [ref=e289]:
+                                - link "Bootstrap and Jacknife" [ref=e290] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp25
+                              - listitem [ref=e291]:
+                                - link "Scheffe's Test" [ref=e292] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp26
+                              - listitem [ref=e293]:
+                                - link "Serial Randomeness" [ref=e294] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp27
+                              - listitem [ref=e295]:
+                                - link "T-Test Examples" [ref=e296] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp28
+                              - listitem [ref=e297]:
+                                - link "Tukey Text Examples" [ref=e298] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp29
+                              - listitem [ref=e299]:
+                                - link "Variances Test Examples" [ref=e300] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp30
+                              - listitem [ref=e301]:
+                                - link "Watson's U2 Test" [ref=e302] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp31
+                              - listitem [ref=e303]:
+                                - link "Watson-Williams Test" [ref=e304] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp32
+                              - listitem [ref=e305]:
+                                - link "Wheeler-Watson Test" [ref=e306] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp33
+                              - listitem [ref=e307]:
+                                - link "Wilcoxon Tests" [ref=e308] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp34
+                              - listitem [ref=e309]:
+                                - link "Weighted Rank Correlation" [ref=e310] [cursor=pointer]:
+                                  - /url: /products/igorpro/dataanalysis/statistics/tests/statistics_pxp35
+                          - listitem [ref=e311]:
+                            - link "Noise Functions" [ref=e312] [cursor=pointer]:
+                              - /url: /products/igorpro/dataanalysis/statistics/noise
+                          - listitem [ref=e313]:
+                            - link "Probability Distribution Functions" [ref=e314] [cursor=pointer]:
+                              - /url: /products/igorpro/dataanalysis/statistics/pdfs
+                          - listitem [ref=e315]:
+                            - link "Cumulative Distribution Functions" [ref=e316] [cursor=pointer]:
+                              - /url: /products/igorpro/dataanalysis/statistics/cdfs
+                          - listitem [ref=e317]:
+                            - link "Inverse CDFs" [ref=e318] [cursor=pointer]:
+                              - /url: /products/igorpro/dataanalysis/statistics/invcdfs
+                          - listitem [ref=e319]:
+                            - link "General Purpose" [ref=e320] [cursor=pointer]:
+                              - /url: /products/igorpro/dataanalysis/statistics/genpurpose
+                          - listitem [ref=e321]:
+                            - link "Procedures and Packages" [ref=e322] [cursor=pointer]:
+                              - /url: /products/igorpro/dataanalysis/statistics/procs
+                      - listitem [ref=e323]:
+                        - link "Computational Geometry" [ref=e324] [cursor=pointer]:
+                          - /url: /products/igorpro/dataanalysis/compgeometry
+                  - listitem [ref=e325]:
+                    - link "Data Manipulation and Math" [ref=e326] [cursor=pointer]:
+                      - /url: /products/igorpro/datamanipulation
+                    - list [ref=e327]:
+                      - listitem [ref=e328]:
+                        - link "Mathematical Functions" [ref=e329] [cursor=pointer]:
+                          - /url: /products/igorpro/datamanipulation/mathfunctions
+                      - listitem [ref=e330]:
+                        - link "Matrix and Linear Algebra" [ref=e331] [cursor=pointer]:
+                          - /url: /products/igorpro/datamanipulation/matrixmath
+                  - listitem [ref=e332]:
+                    - link "Analysis of Functions" [ref=e333] [cursor=pointer]:
+                      - /url: /products/igorpro/analysisoffunctions
+                    - list [ref=e334]:
+                      - listitem [ref=e335]:
+                        - link "Plotting" [ref=e336] [cursor=pointer]:
+                          - /url: /products/igorpro/analysisoffunctions/plotting
+                      - listitem [ref=e337]:
+                        - link "Optimization" [ref=e338] [cursor=pointer]:
+                          - /url: /products/igorpro/analysisoffunctions/optimization
+                      - listitem [ref=e339]:
+                        - link "Root finding" [ref=e340] [cursor=pointer]:
+                          - /url: /products/igorpro/analysisoffunctions/rootfinding
+                      - listitem [ref=e341]:
+                        - link "Integration" [ref=e342] [cursor=pointer]:
+                          - /url: /products/igorpro/analysisoffunctions/integration
+                      - listitem [ref=e343]:
+                        - link "Ordinary differential equations (ODEs)" [ref=e344] [cursor=pointer]:
+                          - /url: /products/igorpro/analysisoffunctions/diffeq
+                  - listitem [ref=e345]:
+                    - link "Igor Filter Design Laboratory" [ref=e346] [cursor=pointer]:
+                      - /url: /products/igorpro/ifdl
+                  - listitem [ref=e347]:
+                    - link "Data Exploration" [ref=e348] [cursor=pointer]:
+                      - /url: /products/igorpro/dataexploration
+                  - listitem [ref=e349]:
+                    - link "Programming" [ref=e350] [cursor=pointer]:
+                      - /url: /products/igorpro/programming
+                    - list [ref=e351]:
+                      - listitem [ref=e352]:
+                        - link "Python Integration" [ref=e353] [cursor=pointer]:
+                          - /url: /products/igorpro/python
+                      - listitem [ref=e354]:
+                        - link "External or Internal procedures" [ref=e355] [cursor=pointer]:
+                          - /url: /products/igorpro/programming/procedures
+                      - listitem [ref=e356]:
+                        - link "Code Editor" [ref=e357] [cursor=pointer]:
+                          - /url: /products/igorpro/programming/codeeditor
+                      - listitem [ref=e358]:
+                        - link "Contextual help" [ref=e359] [cursor=pointer]:
+                          - /url: /products/igorpro/programming/contextualhelp
+                      - listitem [ref=e360]:
+                        - link "Packages" [ref=e361] [cursor=pointer]:
+                          - /url: /products/igorpro/programming/packages
+                      - listitem [ref=e362]:
+                        - link "Debugger" [ref=e363] [cursor=pointer]:
+                          - /url: /products/igorpro/programming/debugger
+                  - listitem [ref=e364]:
+                    - link "Custom Interfaces" [ref=e365] [cursor=pointer]:
+                      - /url: /products/igorpro/custominterfaces
+                    - list [ref=e366]:
+                      - listitem [ref=e367]:
+                        - link "Controls and control panels" [ref=e368] [cursor=pointer]:
+                          - /url: /products/igorpro/custominterfaces/controls
+                      - listitem [ref=e369]:
+                        - link "Control types" [ref=e370] [cursor=pointer]:
+                          - /url: /products/igorpro/custominterfaces/controltypes
+                      - listitem [ref=e371]:
+                        - link "Custom menus" [ref=e372] [cursor=pointer]:
+                          - /url: /products/igorpro/custominterfaces/custommenus
+                  - listitem [ref=e373]:
+                    - link "Notebooks" [ref=e374] [cursor=pointer]:
+                      - /url: /products/igorpro/notebooks
+                  - listitem [ref=e375]:
+                    - link "On-line Help" [ref=e376] [cursor=pointer]:
+                      - /url: /products/igorpro/onlinehelp
+                  - listitem [ref=e377]:
+                    - link "Video Tutorials" [ref=e378] [cursor=pointer]:
+                      - /url: /products/igorpro/videotutorials
+                  - listitem [ref=e379]:
+                    - link "Platform Support" [ref=e380] [cursor=pointer]:
+                      - /url: /products/igorpro/platformsupport
+              - listitem [ref=e381]:
+                - link "NIDAQ Tools MX" [ref=e382] [cursor=pointer]:
+                  - /url: /products/nidaqtools
+                - list [ref=e383]:
+                  - listitem [ref=e384]:
+                    - link "Details" [ref=e385] [cursor=pointer]:
+                      - /url: /products/nidaqtools/details
+                  - listitem [ref=e386]:
+                    - link "Applications" [ref=e387] [cursor=pointer]:
+                      - /url: /products/nidaqtools/applications
+                  - listitem [ref=e388]:
+                    - link "Supported Hardware" [ref=e389] [cursor=pointer]:
+                      - /url: /products/nidaqtools/supportedhardware
+                  - listitem [ref=e390]:
+                    - link "Requirements" [ref=e391] [cursor=pointer]:
+                      - /url: /products/nidaqtools/requirements
+              - listitem [ref=e392]:
+                - link "XOP Toolkit" [ref=e393] [cursor=pointer]:
+                  - /url: /products/xoptoolkit
+                - list [ref=e394]:
+                  - listitem [ref=e395]:
+                    - link "Versions" [ref=e396] [cursor=pointer]:
+                      - /url: /products/xoptoolkit/versions
+                  - listitem [ref=e397]:
+                    - link "Manual" [ref=e398] [cursor=pointer]:
+                      - /url: /products/xoptoolkit/manual
+                  - listitem [ref=e399]:
+                    - link "Example XOP" [ref=e400] [cursor=pointer]:
+                      - /url: /products/xoptoolkit/examples
+                  - listitem [ref=e401]:
+                    - link "Development Systems" [ref=e402] [cursor=pointer]:
+                      - /url: /products/xoptoolkit/devsys
+              - listitem [ref=e403]:
+                - link "Third Party" [ref=e404] [cursor=pointer]:
+                  - /url: /products/thirdparty/thirdparty
+                - list [ref=e405]:
+                  - listitem [ref=e406]:
+                    - link "Data Acquistion" [ref=e407] [cursor=pointer]:
+                      - /url: /products/thirdparty/data
+                  - listitem [ref=e408]:
+                    - link "Cameras/Digitizers" [ref=e409] [cursor=pointer]:
+                      - /url: /products/thirdparty/cameras
+                  - listitem [ref=e410]:
+                    - link "Instruments using IGOR" [ref=e411] [cursor=pointer]:
+                      - /url: /products/thirdparty/instruments
+                  - listitem [ref=e412]:
+                    - link "Software" [ref=e413] [cursor=pointer]:
+                      - /url: /products/thirdparty/software
+                  - listitem [ref=e414]:
+                    - link "Developers and Consultants" [ref=e415] [cursor=pointer]:
+                      - /url: /products/thirdparty/developers
+              - listitem [ref=e416]:
+                - link "Resellers" [ref=e417] [cursor=pointer]:
+                  - /url: /order/order_resellers.htm
+              - listitem [ref=e418]:
+                - link "OEM Information" [ref=e419] [cursor=pointer]:
+                  - /url: /products/oem
+          - listitem [ref=e420]:
+            - link "News & Blog" [ref=e421] [cursor=pointer]:
+              - /url: /news
+          - listitem [ref=e422]:
+            - link "Downloads" [ref=e423] [cursor=pointer]:
+              - /url: /downloads/current
+            - list [ref=e424]:
+              - listitem [ref=e425]:
+                - link "All Downloads" [ref=e426] [cursor=pointer]:
+                  - /url: /downloads
+              - listitem [ref=e427]:
+                - link "Current Releases" [ref=e428] [cursor=pointer]:
+                  - /url: /downloads/current
+          - listitem [ref=e429]:
+            - link "Samples Galleries" [ref=e430] [cursor=pointer]:
+              - /url: /photo-gallery
+          - listitem [ref=e431]:
+            - link "Case Studies" [ref=e432] [cursor=pointer]:
+              - /url: /case-studies
+            - list [ref=e433]:
+              - listitem [ref=e434]:
+                - link "Space Physics Research" [ref=e435] [cursor=pointer]:
+                  - /url: /case-study/space-physics-research
+              - listitem [ref=e436]:
+                - link "Atmospheric Research" [ref=e437] [cursor=pointer]:
+                  - /url: /case-study/atmospheric-chemistry-research
+              - listitem [ref=e438]:
+                - link "MFP3D Atomic Force Microscope" [ref=e439] [cursor=pointer]:
+                  - /url: /products/igorpro/gallery/casestudies/asylumresearch
+              - listitem [ref=e440]:
+                - link "Neuromatic and NClamp" [ref=e441] [cursor=pointer]:
+                  - /url: /case-study/neuromatic
+              - listitem [ref=e442]:
+                - link "NeutroNM" [ref=e443] [cursor=pointer]:
+                  - /url: /case-study/neutron-monitor
+              - listitem [ref=e444]:
+                - link "Neutron Scattering" [ref=e445] [cursor=pointer]:
+                  - /url: /case-study/small-angle-very-small-and-ultra-small-neutron-scattering
+              - listitem [ref=e446]:
+                - link "TGSGUI Optical Simulation" [ref=e447] [cursor=pointer]:
+                  - /url: /case-study/tgsgui-optical-simulation-program
+              - listitem [ref=e448]:
+                - link "Wide-Angle Neutron Spin Echo Spectroscopy" [ref=e449] [cursor=pointer]:
+                  - /url: /case-study/wide-angle-neutron-spin-echo-spectroscopy
+              - listitem [ref=e450]:
+                - link "ZeFir" [ref=e451] [cursor=pointer]:
+                  - /url: /case-study/zefir-tracking-pollution-back-origin
+          - listitem [ref=e452]:
+            - link "IgorExchange Forums" [ref=e453] [cursor=pointer]:
+              - /url: /forum
+            - list [ref=e454]:
+              - listitem [ref=e455]:
+                - link "All Recent Activity" [ref=e456] [cursor=pointer]:
+                  - /url: /tracker
+              - listitem [ref=e457]:
+                - link "General (Main) Forum" [ref=e458] [cursor=pointer]:
+                  - /url: /forum/28
+              - listitem [ref=e459]:
+                - link "Igor Pro Wishlist Forum" [ref=e460] [cursor=pointer]:
+                  - /url: /forum/68
+              - listitem [ref=e461]:
+                - link "News and Announcements Forum" [ref=e462] [cursor=pointer]:
+                  - /url: /forum/51
+              - listitem [ref=e463]:
+                - link "WaveMetrics.com Forum" [ref=e464] [cursor=pointer]:
+                  - /url: /forum/67
+              - listitem [ref=e465]:
+                - link "Code Snippets" [ref=e466] [cursor=pointer]:
+                  - /url: /forum/code-snippets
+              - listitem [ref=e467]:
+                - link "Projects" [ref=e468] [cursor=pointer]:
+                  - /url: /forum/projects
+              - listitem [ref=e469]:
+                - link "Join the Forum (Register)" [ref=e470] [cursor=pointer]:
+                  - /url: /user/register
+          - listitem [ref=e471]:
+            - link "Support Center" [ref=e472] [cursor=pointer]:
+              - /url: /support
+            - list [ref=e473]:
+              - listitem [ref=e474]:
+                - link "Documentation" [ref=e475] [cursor=pointer]:
+                  - /url: https://docs.wavemetrics.com
+              - listitem [ref=e476]:
+                - link "Contact Us" [ref=e477] [cursor=pointer]:
+                  - /url: /contact-us
+              - listitem [ref=e478]:
+                - link "FAQ" [ref=e479] [cursor=pointer]:
+                  - /url: /support/faq
+              - listitem [ref=e480]:
+                - link "Video Tutorials" [ref=e481] [cursor=pointer]:
+                  - /url: /products/igorpro/videotutorials
+              - listitem [ref=e482]:
+                - link "Current and Legacy Versions" [ref=e483] [cursor=pointer]:
+                  - /url: /support/versions
+              - listitem [ref=e484]:
+                - link "User Resources & Contributions" [ref=e485] [cursor=pointer]:
+                  - /url: /users/users
+              - listitem [ref=e486]:
+                - link "Japanese Support Center / 日本語サポートセンター" [ref=e487] [cursor=pointer]:
+                  - /url: /support/jp/top
+                - list [ref=e488]:
+                  - listitem [ref=e489]:
+                    - link "Igor Pro® 10 ハイライト" [ref=e490] [cursor=pointer]:
+                      - /url: /support/jp/visual_manual/igor-10-highlightsj
+                    - list [ref=e491]:
+                      - listitem [ref=e492]:
+                        - link "Igor Pro® 10 の新機能の解説" [ref=e493] [cursor=pointer]:
+                          - /url: /support/jp/tech_support_info/v10_desc
+                  - listitem [ref=e494]:
+                    - link "Igor Pro® 10 システム要件" [ref=e495] [cursor=pointer]:
+                      - /url: https://www.wavemetrics.com/support/jp/system_req
+                  - listitem [ref=e496]:
+                    - link "Igor Pro 概要" [ref=e497] [cursor=pointer]:
+                      - /url: /support/jp/products/igorpro
+                    - list [ref=e498]:
+                      - listitem [ref=e499]:
+                        - link "ユニークなハイブリッドインターフェイス" [ref=e500] [cursor=pointer]:
+                          - /url: /support/jp/products/igorpro/Interface
+                      - listitem [ref=e501]:
+                        - link "データアクセス" [ref=e502] [cursor=pointer]:
+                          - /url: /support/jp/products/igorpro/dataaccess
+                        - list [ref=e503]:
+                          - listitem [ref=e504]:
+                            - link "データのインポート" [ref=e505] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/dataaccess/fileformats
+                          - listitem [ref=e506]:
+                            - link "バイナリデータ" [ref=e507] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/dataaccess/binaryfiles
+                          - listitem [ref=e508]:
+                            - link "HDF5 サポート" [ref=e509] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/dataaccess/hdf5
+                          - listitem [ref=e510]:
+                            - link "ハードウェアからのデータ取得" [ref=e511] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/dataaccess/datafromhardware
+                          - listitem [ref=e512]:
+                            - link "Micro-Manager" [ref=e513] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/dataaccess/MMI
+                      - listitem [ref=e514]:
+                        - link "グラフィックスの作成" [ref=e515] [cursor=pointer]:
+                          - /url: /support/jp/products/igorpro/creatinggraphs
+                        - list [ref=e516]:
+                          - listitem [ref=e517]:
+                            - link "2Dグラフ" [ref=e518] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/creatinggraphs/2dgraphs
+                            - list [ref=e519]:
+                              - listitem [ref=e520]:
+                                - link "XY プロット" [ref=e521] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/creatinggraphs/2dgraphs/linegraphs
+                              - listitem [ref=e522]:
+                                - link "カテゴリプロット" [ref=e523] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/creatinggraphs/2dgraphs/catplot
+                              - listitem [ref=e524]:
+                                - link "コンタープロット" [ref=e525] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/creatinggraphs/2dgraphs/contourgraphs
+                              - listitem [ref=e526]:
+                                - link "柔軟な軸" [ref=e527] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/creatinggraphs/2dgraphs/axes
+                              - listitem [ref=e528]:
+                                - link "アニメーション" [ref=e529] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/creatinggraphs/2dgraphs/animations
+                              - listitem [ref=e530]:
+                                - link "プレファレンス" [ref=e531] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/creatinggraphs/2dgraphs/preferences
+                          - listitem [ref=e532]:
+                            - link "サブウィンドウ" [ref=e533] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/creatinggraphs/subwindows
+                          - listitem [ref=e534]:
+                            - link "ページレイアウト" [ref=e535] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/creatinggraphs/pagelayouts
+                          - listitem [ref=e536]:
+                            - link "テーブル" [ref=e537] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/creatinggraphs/tables
+                          - listitem [ref=e538]:
+                            - link "描画ツール" [ref=e539] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/creatinggraphs/drawingtools
+                          - listitem [ref=e540]:
+                            - link "注釈" [ref=e541] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/creatinggraphs/annotations
+                          - listitem [ref=e542]:
+                            - link "カラーテーブル" [ref=e543] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/creatinggraphs/colortab
+                          - listitem [ref=e544]:
+                            - link "3Dとボリューム" [ref=e545] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/creatinggraphs/3dandvolume
+                            - list [ref=e546]:
+                              - listitem [ref=e547]:
+                                - link "サーフェスプロット" [ref=e548] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/creatinggraphs/3dandvolume/surface
+                              - listitem [ref=e549]:
+                                - link "パスプロットとリボンプロット" [ref=e550] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/creatinggraphs/3dandvolume/path
+                              - listitem [ref=e551]:
+                                - link "3D 散布図" [ref=e552] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/creatinggraphs/3dandvolume/scatter
+                              - listitem [ref=e553]:
+                                - link "3D オブジェクトプロット" [ref=e554] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/creatinggraphs/3dandvolume/objects
+                              - listitem [ref=e555]:
+                                - link "等値面プロット" [ref=e556] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/creatinggraphs/3dandvolume/isosurface
+                              - listitem [ref=e557]:
+                                - link "ボクセルグラム" [ref=e558] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/creatinggraphs/3dandvolume/voxelgrams
+                              - listitem [ref=e559]:
+                                - link "ボリュームのスライス" [ref=e560] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/creatinggraphs/3dandvolume/slicer
+                          - listitem [ref=e561]:
+                            - link "グラフのエクスポート" [ref=e562] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/creatinggraphs/exportinggraphics
+                      - listitem [ref=e563]:
+                        - link "画像処理" [ref=e564] [cursor=pointer]:
+                          - /url: /support/jp/products/igorpro/imageprocessing
+                        - list [ref=e565]:
+                          - listitem [ref=e566]:
+                            - link "画像の取り込み" [ref=e567] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/imageprocessing/imageacquisition
+                          - listitem [ref=e568]:
+                            - link "ROI（関心領域）" [ref=e569] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/imageprocessing/roi
+                          - listitem [ref=e570]:
+                            - link "画像変換" [ref=e571] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/imageprocessing/imagetransforms
+                          - listitem [ref=e572]:
+                            - link "カラースペース変換" [ref=e573] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/imageprocessing/colortransforms
+                          - listitem [ref=e574]:
+                            - link "画像の閾値" [ref=e575] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/imageprocessing/thresholding
+                          - listitem [ref=e576]:
+                            - link "輪郭検出" [ref=e577] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/imageprocessing/edgedetectors
+                          - listitem [ref=e578]:
+                            - link "画像解析" [ref=e579] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/imageprocessing/imageanalysis
+                            - list [ref=e580]:
+                              - listitem [ref=e581]:
+                                - link "画像の統計" [ref=e582] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/imageprocessing/imagestats
+                              - listitem [ref=e583]:
+                                - link "ラインプロファイル" [ref=e584] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/imageprocessing/imageanalysis/imagelineprofile
+                              - listitem [ref=e585]:
+                                - link "粒子解析" [ref=e586] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/imageprocessing/imageanalysis/particleanalysis
+                              - listitem [ref=e587]:
+                                - link "画像のスネーク（輪郭）" [ref=e588] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/imageprocessing/imageanalysis/ImageSnake
+                      - listitem [ref=e589]:
+                        - link "データ分析" [ref=e590] [cursor=pointer]:
+                          - /url: /support/jp/products/igorpro/dataanalysis
+                        - list [ref=e591]:
+                          - listitem [ref=e592]:
+                            - link "カーブフィッテイング" [ref=e593] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/dataanalysis/curvefitting
+                            - list [ref=e594]:
+                              - listitem [ref=e595]:
+                                - link "組み込み" [ref=e596] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/dataanalysis/curvefitting/builtintypes
+                              - listitem [ref=e597]:
+                                - link "ユーザー定義" [ref=e598] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/dataanalysis/curvefitting/userdefined
+                              - listitem [ref=e599]:
+                                - link "制約付き" [ref=e600] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/dataanalysis/curvefitting/constraints
+                              - listitem [ref=e601]:
+                                - link "変数誤差" [ref=e602] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/dataanalysis/curvefitting/errorsinvariables
+                              - listitem [ref=e603]:
+                                - link "グルーバルフィッティング" [ref=e604] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/dataanalysis/curvefitting/globalfitting
+                              - listitem [ref=e605]:
+                                - link "多次元" [ref=e606] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/dataanalysis/curvefitting/multidimensional
+                          - listitem [ref=e607]:
+                            - link "ピーク分析" [ref=e608] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/dataanalysis/peakanalysis
+                            - list [ref=e609]:
+                              - listitem [ref=e610]:
+                                - link "ピーク検出" [ref=e611] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/dataanalysis/peakanalysis/peakfinding
+                              - listitem [ref=e612]:
+                                - link "ベースライン除去" [ref=e613] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/dataanalysis/peakanalysis/baselineremoval
+                              - listitem [ref=e614]:
+                                - link "マルチピークフィッティング" [ref=e615] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/dataanalysis/peakanalysis/multipeakfitting
+                          - listitem [ref=e616]:
+                            - link "信号処理" [ref=e617] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/dataanalysis/signalprocessing
+                            - list [ref=e618]:
+                              - listitem [ref=e619]:
+                                - link "フーリエ変換" [ref=e620] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/dataanalysis/signalprocessing/fouriertransforms
+                              - listitem [ref=e621]:
+                                - link "スペクトルウインドウ処理" [ref=e622] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/dataanalysis/signalprocessing/spectralwindowing
+                              - listitem [ref=e623]:
+                                - link "パワースペクトル" [ref=e624] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/dataanalysis/signalprocessing/powerspectra
+                              - listitem [ref=e625]:
+                                - link "ヒルベルト変換" [ref=e626] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/dataanalysis/signalprocessing/hilberttransform
+                              - listitem [ref=e627]:
+                                - link "時間周波数解析" [ref=e628] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/dataanalysis/signalprocessing/timefrequency
+                              - listitem [ref=e629]:
+                                - link "デジタルフィルタリング" [ref=e630] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/dataanalysis/signalprocessing/digitalfilters
+                              - listitem [ref=e631]:
+                                - link "平滑化" [ref=e632] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/dataanalysis/signalprocessing/smoothing
+                              - listitem [ref=e633]:
+                                - link "畳み込みと相関" [ref=e634] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/dataanalysis/signalprocessing/convolution
+                              - listitem [ref=e635]:
+                                - link "レベル検出" [ref=e636] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/dataanalysis/signalprocessing/leveldetection
+                          - listitem [ref=e637]:
+                            - link "統計分析" [ref=e638] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/dataanalysis/statistics
+                            - list [ref=e639]:
+                              - listitem [ref=e640]:
+                                - link "統計的検定操作" [ref=e641] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/dataanalysis/statistics/tests
+                              - listitem [ref=e642]:
+                                - link "ノイズ関数" [ref=e643] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/dataanalysis/statistics/noise
+                              - listitem [ref=e644]:
+                                - link "確率分布関数" [ref=e645] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/dataanalysis/statistics/pdfs
+                              - listitem [ref=e646]:
+                                - link "累積分布関数" [ref=e647] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/dataanalysis/statistics/cdfs
+                              - listitem [ref=e648]:
+                                - link "逆累積分布関数" [ref=e649] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/dataanalysis/statistics/invcdfs
+                              - listitem [ref=e650]:
+                                - link "汎用のコマンドと関数" [ref=e651] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/dataanalysis/statistics/genpurpose
+                              - listitem [ref=e652]:
+                                - link "プロシージャとパッケージ" [ref=e653] [cursor=pointer]:
+                                  - /url: /support/jp/products/igorpro/dataanalysis/statistics/procs
+                          - listitem [ref=e654]:
+                            - link "計算幾何学" [ref=e655] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/dataanalysis/compgeometry
+                      - listitem [ref=e656]:
+                        - link "データの操作と計算" [ref=e657] [cursor=pointer]:
+                          - /url: /support/jp/products/igorpro/datamanipulation
+                        - list [ref=e658]:
+                          - listitem [ref=e659]:
+                            - link "数学的関数" [ref=e660] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/datamanipulation/mathfunctions
+                          - listitem [ref=e661]:
+                            - link "行列計算" [ref=e662] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/datamanipulation/matrixmath
+                      - listitem [ref=e663]:
+                        - link "関数の分析" [ref=e664] [cursor=pointer]:
+                          - /url: /support/jp/products/igorpro/analysisoffunctions
+                        - list [ref=e665]:
+                          - listitem [ref=e666]:
+                            - link "プロット" [ref=e667] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/analysisoffunctions/plotting
+                          - listitem [ref=e668]:
+                            - link "最適化" [ref=e669] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/analysisoffunctions/optimization
+                          - listitem [ref=e670]:
+                            - link "根を見つける" [ref=e671] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/analysisoffunctions/rootfinding
+                          - listitem [ref=e672]:
+                            - link "積分" [ref=e673] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/analysisoffunctions/integration
+                          - listitem [ref=e674]:
+                            - link "ODE の数値解法" [ref=e675] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/analysisoffunctions/diffeq
+                      - listitem [ref=e676]:
+                        - link "プログラミング" [ref=e677] [cursor=pointer]:
+                          - /url: /support/jp/products/igorpro/programming
+                        - list [ref=e678]:
+                          - listitem [ref=e679]:
+                            - link "Python との統合" [ref=e680] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/python
+                          - listitem [ref=e681]:
+                            - link "外部・内部プロシージャ" [ref=e682] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/programming/procedures
+                          - listitem [ref=e683]:
+                            - link "コードエディター" [ref=e684] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/programming/codeeditor
+                          - listitem [ref=e685]:
+                            - link "コンテキストヘルプ" [ref=e686] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/programming/contextualhelp
+                          - listitem [ref=e687]:
+                            - link "パッケージ" [ref=e688] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/programming/packages
+                          - listitem [ref=e689]:
+                            - link "デバッガー" [ref=e690] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/programming/debugger
+                      - listitem [ref=e691]:
+                        - link "カスタムのインターフェイス" [ref=e692] [cursor=pointer]:
+                          - /url: /support/jp/products/igorpro/custominterfaces
+                        - list [ref=e693]:
+                          - listitem [ref=e694]:
+                            - link "コントロール" [ref=e695] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/custominterfaces/controls
+                          - listitem [ref=e696]:
+                            - link "コントロールの形式" [ref=e697] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/custominterfaces/controltypes
+                          - listitem [ref=e698]:
+                            - link "カスタムのメニュー" [ref=e699] [cursor=pointer]:
+                              - /url: /support/jp/products/igorpro/custominterfaces/custommenus
+                      - listitem [ref=e700]:
+                        - link "ノートブック" [ref=e701] [cursor=pointer]:
+                          - /url: /support/jp/products/igorpro/notebooks
+                  - listitem [ref=e702]:
+                    - link "日本からのご購入について" [ref=e703] [cursor=pointer]:
+                      - /url: /support/jp/howtobuy
+                    - list [ref=e704]:
+                      - listitem [ref=e705]:
+                        - link "コースワークライセンス" [ref=e706] [cursor=pointer]:
+                          - /url: https://www.wavemetrics.com/support/jp/order_coursework
+                  - listitem [ref=e707]:
+                    - link "ガイドツアー（日本語特別版）" [ref=e708] [cursor=pointer]:
+                      - /url: /support/jp/getting_started
+                  - listitem [ref=e709]:
+                    - link "ヘルプ（日本語版）" [ref=e710] [cursor=pointer]:
+                      - /url: /support/jp/visual_manual
+                  - listitem [ref=e711]:
+                    - link "各種日本語サポート情報" [ref=e712] [cursor=pointer]:
+                      - /url: /support/jp/tech_support_info
+    - generic [ref=e713]:
+      - banner "Site header" [ref=e714]:
+        - link [ref=e715] [cursor=pointer]:
+          - /url: /
+          - img [ref=e716]
+        - navigation "User account menu" [ref=e717]:
+          - heading "User account menu" [level=2] [ref=e718]
+          - list [ref=e719]:
+            - listitem [ref=e720]:
+              - link "Forum Log In" [ref=e721] [cursor=pointer]:
+                - /url: /user/login
+        - link:
+          - /url: "#"
+        - link:
+          - /url: /search/wavemetrics?keys=
+      - article [ref=e722]:
+        - img [ref=e724]
+        - heading "Igor Pro®" [level=1] [ref=e725]
+        - generic [ref=e726]:
+          - heading "Buy Now! Select Your Licence Type:" [level=4] [ref=e727]
+          - generic [ref=e728]:
+            - link "Standard" [ref=e729] [cursor=pointer]:
+              - /url: /webform/digitalriver_igor_pro_std_addons
+            - link "Student" [ref=e730] [cursor=pointer]:
+              - /url: /webform/digitalriver_igor_pro_student
+            - link "Academic" [ref=e731] [cursor=pointer]:
+              - /url: /webform/digitalriver_igor_pro_academic
+            - link "Coursework" [ref=e732] [cursor=pointer]:
+              - /url: /webform/digitalriver_igor_pro_8_coursewo
+            - link "Request a Quote" [ref=e733] [cursor=pointer]:
+              - /url: /webform/request_a_quote
+          - paragraph [ref=e736]:
+            - text: Please contact us at
+            - link "sales@wavemetrics.com" [ref=e737] [cursor=pointer]:
+              - /url: mailto:sales@wavemetrics.com
+            - text: or by phone at (503) 620-3001 if you have any questions.
+          - link "Try the Igor Pro 10 Demo Download the fully-functional Igor Pro 10 Demo and try it for 30 days after installation. After 30 days, the demo will lapse into limited functionality mode." [ref=e738] [cursor=pointer]:
+            - /url: /downloads/current/Igor Pro 10
+            - heading "Try the Igor Pro 10 Demo" [level=2] [ref=e739]
+            - paragraph [ref=e740]: Download the fully-functional Igor Pro 10 Demo and try it for 30 days after installation. After 30 days, the demo will lapse into limited functionality mode.
+          - generic [ref=e741]:
+            - heading "Igor Pro Screenshots" [level=2] [ref=e742]
+            - generic [ref=e743]:
+              - img "3D plot of filled cell image using \"Gizmo\"." [ref=e744]
+              - img "Fitting Gamma-ray Spectra" [ref=e745]
+              - img "Research paper that used Igor graphics and data analysis" [ref=e746]
+          - generic [ref=e747]:
+            - heading "Product Features" [level=2] [ref=e748]
+            - paragraph [ref=e749]: Igor Pro is an interactive software environment for experimentation with scientific and engineering data and for the production of publication-quality graphs and page layouts. Igor has been used by tens of thousands of technical professionals since its introduction in 1989. Here are a few highlights of the newly released Igor Pro 10.
+            - table [ref=e750]:
+              - rowgroup [ref=e751]:
+                - row "Igor Pro 10 runs on Windows 10 and later" [ref=e752]:
+                  - cell "Igor Pro 10 runs on Windows 10 and later" [ref=e753]
+                  - cell [ref=e754]
+                - row "Produces and exports high-resolution, journal quality scientific graphs in SVG, EPS, PDF, and PNG" [ref=e755]:
+                  - cell "Produces and exports high-resolution, journal quality scientific graphs in SVG, EPS, PDF, and PNG" [ref=e756]
+                  - cell [ref=e757]
+                - row "Handles large data sets very quickly" [ref=e758]:
+                  - cell "Handles large data sets very quickly" [ref=e759]
+                  - cell [ref=e760]
+                - row "Includes a wide range of capabilities for scientific and engineering analysis and simulation" [ref=e761]:
+                  - cell "Includes a wide range of capabilities for scientific and engineering analysis and simulation" [ref=e762]
+                  - cell [ref=e763]
+                - row "Contains a built-in programming environment that makes it easy to automate applications and extend internal tools" [ref=e764]:
+                  - cell "Contains a built-in programming environment that makes it easy to automate applications and extend internal tools" [ref=e765]
+                  - cell [ref=e766]
+                - row "Completely programmable via a built-in programming environment and can be extended by external code (XOPs) written in C" [ref=e767]:
+                  - cell "Completely programmable via a built-in programming environment and can be extended by external code (XOPs) written in C" [ref=e768]
+                  - cell [ref=e769]
+                - row "Igor Pro has special support for time-series or other evenly-spaced data" [ref=e770]:
+                  - cell "Igor Pro has special support for time-series or other evenly-spaced data" [ref=e771]
+                  - cell [ref=e772]
+                - row "Includes extensive image processing tools for image filtering, manipulation and graphing" [ref=e773]:
+                  - cell "Includes extensive image processing tools for image filtering, manipulation and graphing" [ref=e774]
+                  - cell [ref=e775]
+                - row "Python integration allows you to directly execute Python code and exchange data between Igor and Python" [ref=e776]:
+                  - cell "Python integration allows you to directly execute Python code and exchange data between Igor and Python" [ref=e777]
+                  - cell [ref=e778]
+                - row "Imports data in many formats and can acquire data from hardware devices" [ref=e779]:
+                  - cell "Imports data in many formats and can acquire data from hardware devices" [ref=e780]
+                  - cell [ref=e781]
+                - row "Uses unicode to support foreign languages and mathematical symbols" [ref=e782]:
+                  - cell "Uses unicode to support foreign languages and mathematical symbols" [ref=e783]
+                  - cell [ref=e784]
+                - row "Active user-to-user support and collaboration forum" [ref=e785]:
+                  - cell "Active user-to-user support and collaboration forum" [ref=e786]
+                  - cell [ref=e787]
+                - row "Responsive, user-acclaimed technical support" [ref=e788]:
+                  - cell "Responsive, user-acclaimed technical support" [ref=e789]
+                  - cell [ref=e790]
+                - row "Includes Igor Filter Design Laboratory for interactive design of FIR and IIR digital filters" [ref=e791]:
+                  - cell "Includes Igor Filter Design Laboratory for interactive design of FIR and IIR digital filters" [ref=e792]
+                  - cell [ref=e793]
+          - generic [ref=e795]:
+            - heading "Product Description" [level=2] [ref=e796]
+            - paragraph [ref=e797]:
+              - text: Igor Pro 10 is an interactive software environment for experimentation with scientific and engineering data and for the production of publication-quality graphs and page layouts. Igor
+              - link "has been used by tens of thousands of technical professionals" [ref=e798] [cursor=pointer]:
+                - /url: https://scholar.google.com/scholar?hl=en&as_sdt=0%2C38&q=WaveMetrics+%22Igor+Pro%22&btnG=
+              - text: since its introduction in 1989.
+            - paragraph [ref=e799]: Igor Pro combines powerful tools with an easy to use, point and click interface for the casual user together and a programming environment for the sophisticated user. Igor Pro’s plugin technology extends the built-in functionality with custom tools for data acquisition, instrument control and computational tasks.
+            - paragraph [ref=e800]:
+              - text: The latest Igor Pro 10 release contains hundreds of improvements, including Python integration, built-in support for HDF5, new functions and operations. View the full list of updates
+              - link "here" [ref=e801] [cursor=pointer]:
+                - /url: /products/igorpro/newfeatures10
+              - text: .
+            - heading "Free Upgrade Eligibility" [level=4] [ref=e802]
+            - paragraph [ref=e803]:
+              - emphasis [ref=e804]:
+                - strong [ref=e805]: All Igor Pro 9 licenses (new and upgrades) sold on or after January 1, 2025, are eligible for a free upgrade to Igor Pro 10.
+            - heading "System Requirements" [level=4] [ref=e806]
+            - paragraph [ref=e807]:
+              - text: Igor Pro runs on Windows 10 or later. See our
+              - link "Platform Support page" [ref=e808] [cursor=pointer]:
+                - /url: /products/igorpro/platformsupport
+              - text: for version specific details.
+            - heading "Igor Pro is an excellent tool for:" [level=3] [ref=e809]
+            - list [ref=e810]:
+              - listitem [ref=e811]:
+                - strong [ref=e812]: Graphics Creation -
+                - text: Igor Pro is first and foremost a publication quality scientific and engineering graphics program, capable of creating visually stunning 3D graphics as well as 2D graphs.
+              - listitem [ref=e813]:
+                - strong [ref=e814]: Data Access -
+                - text: Scientists and engineers encounter many data formats. Igor Pro provides a variety of import, storage and export capabilities that can handle almost any requirement.
+              - listitem [ref=e815]:
+                - strong [ref=e816]: Data Storage -
+                - text: Unlike spreadsheet programs, Igor Pro's data objects won't clutter up your screen. Efficiently organize your data into a hierarchy, just like you would organize files in a hierarchy of folders on your hard drive!
+              - listitem [ref=e817]:
+                - strong [ref=e818]: Data Manipulation & Math -
+                - text: Igor Pro provides an extensive library of math and data manipulation routines and Igor's array-oriented arithmetic make complex operations a snap.
+              - listitem [ref=e819]:
+                - strong [ref=e820]: Image Processing -
+                - text: Igor Pro contains a full set of operations and functions for scientific image analysis applications.
+              - listitem [ref=e821]:
+                - strong [ref=e822]: Data Analysis -
+                - text: Igor provides many analysis capabilities, including curve fitting, peak analysis, signal processing and statistics.
+              - listitem [ref=e823]:
+                - strong [ref=e824]: Analysis of Function -
+                - text: "Igor includes several operations that work on functions rather than discrete data points, including: plotting of functions, differential equations, numerical integration of functions, root finding and optimization."
+            - heading "Programming" [level=3] [ref=e825]
+            - paragraph [ref=e826]: Igor Pro includes a powerful and full-featured structured programming language that you can use for automation of data import, file I/O, analysis, data acquisition, graphing, drawing, printing, and just about anything you can think of.
+            - paragraph [ref=e827]: Igor Pro´s full-featured symbolic debugger gives you a powerful tool to get your code working properly by observing it execute one step at a time. You can view multidimensional waves as images and 1D waves in a regular graph. You can also view waves in a table and values edited in place.
+            - paragraph [ref=e828]:
+              - text: Igor Pro
+              - superscript [ref=e829]: ®
+              - text: 10 introduces built-in Python integration, allowing you to directly execute Python code and exchange data between Igor and Python. Together, users can combine the power of Igor's numeric analysis, data visualization, and data management tools with the extensive set of third-party libraries that are available to Python programmers.
+            - heading "Igor Pro Brochure" [level=3] [ref=e830]
+            - paragraph [ref=e831]:
+              - link "Download" [ref=e832] [cursor=pointer]:
+                - /url: https://www.wavemetrics.net/Downloads/Igor10BrochureEnglish.pdf
+              - text: our full-color two page brochure for Igor Pro 10.
+      - generic [ref=e833]:
+        - generic [ref=e834]:
+          - link "Forum" [ref=e835] [cursor=pointer]:
+            - /url: /forum
+            - img [ref=e836]
+            - paragraph [ref=e837]: Forum
+          - link "Support" [ref=e838] [cursor=pointer]:
+            - /url: /support
+            - img [ref=e839]
+            - paragraph [ref=e840]: Support
+          - link "Gallery" [ref=e841] [cursor=pointer]:
+            - /url: /photo-gallery
+            - img [ref=e842]
+            - paragraph [ref=e843]: Gallery
+        - generic [ref=e844]:
+          - link "Igor Pro 10 Learn More" [ref=e845] [cursor=pointer]:
+            - /url: /products/igorpro
+            - heading "Igor Pro 10" [level=3] [ref=e846]
+            - paragraph [ref=e847]: Learn More
+          - link "Igor XOP Toolkit Learn More" [ref=e848] [cursor=pointer]:
+            - /url: /products/xoptoolkit
+            - heading "Igor XOP Toolkit" [level=3] [ref=e849]
+            - paragraph [ref=e850]: Learn More
+          - link "Igor NIDAQ Tools MX Learn More" [ref=e851] [cursor=pointer]:
+            - /url: /products/nidaqtools
+            - heading "Igor NIDAQ Tools MX" [level=3] [ref=e852]
+            - paragraph [ref=e853]: Learn More
+      - contentinfo [ref=e854]:
+        - complementary [ref=e855]:
+          - generic [ref=e857]:
+            - heading "WaveMetrics - A Division of Sutter Instrument" [level=2] [ref=e858]
+            - paragraph [ref=e859]: Scientific graphic and data analysis software for scientists and engineers
+            - generic [ref=e860]:
+              - heading "Business Information" [level=3] [ref=e861]
+              - heading "Hours:" [level=4] [ref=e862]
+              - list [ref=e863]:
+                - listitem [ref=e864]: Mon-Fri
+                - listitem [ref=e865]: 9:00 am - 5:00 pm
+              - heading "Phone Number:" [level=4] [ref=e866]
+              - list [ref=e867]:
+                - listitem [ref=e868]:
+                  - text: "Portland:"
+                  - link "(503) 620-3001" [ref=e870] [cursor=pointer]:
+                    - /url: "tel:"
+              - heading "Address:" [level=4] [ref=e871]
+              - list [ref=e872]:
+                - listitem [ref=e873]: WaveMetrics, Suite G-7, 10200 SW Nimbus Ave, Portland , OR 97223
+            - generic [ref=e874]:
+              - heading "Support Information" [level=3] [ref=e875]
+              - heading "Customer Support:" [level=4] [ref=e876]
+              - list [ref=e877]:
+                - listitem [ref=e878]: sales@wavemetrics.com
+              - heading "Technical Support:" [level=4] [ref=e879]
+              - list [ref=e880]:
+                - listitem [ref=e881]: support@wavemetrics.com
+              - heading "Mailing Address:" [level=4] [ref=e882]
+              - list [ref=e883]:
+                - listitem [ref=e884]: WaveMetrics, P.O. Box 2088 Lake Oswego, OR 97035 USA
+            - paragraph [ref=e885]:
+              - link "Privacy Policy" [ref=e886] [cursor=pointer]:
+                - /url: https://wavemetrics.com/privacy-accessibility
+  - generic [ref=e888]:
+    - generic [ref=e889]: ←→
+    - text: x

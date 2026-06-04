@@ -1,0 +1,73 @@
+#!/bin/bash
+#
+# run-behat — run Behat functional tests against the deployed multidev.
+#
+# This is the project-agnostic runner shipped by pantheon-ci-tools. It is
+# intentionally a no-op for projects that don't ship Behat tests: the CI
+# job that calls it already halts when tests/behat is absent, and this
+# script double-checks so it's also safe to run by hand locally.
+#
+# The multidev base URL is injected into Mink via the standard BEHAT_PARAMS
+# environment variable, so projects do NOT need to hardcode an environment
+# URL in their committed behat.yml — the same suite runs against whatever
+# multidev this pipeline just built.
+#
+# Tunables (env):
+#   BEHAT_DIR      directory holding the suite      (default tests/behat)
+#   BEHAT_CONFIG   behat config file                (default $BEHAT_DIR/behat.yml)
+#   BEHAT_PROFILE  optional --profile to run         (default: none)
+#   MULTIDEV_SITE_URL  target base URL (required; set by the deploy step)
+
+set -euo pipefail
+
+BEHAT_DIR="${BEHAT_DIR:-tests/behat}"
+BEHAT_CONFIG="${BEHAT_CONFIG:-${BEHAT_DIR}/behat.yml}"
+
+# Gate: nothing to do if this project doesn't ship Behat tests.
+if [ ! -d "${BEHAT_DIR}" ]; then
+  echo "run-behat: no ${BEHAT_DIR} directory — skipping Behat."
+  exit 0
+fi
+
+URL="${MULTIDEV_SITE_URL:-}"
+if [ -z "${URL}" ]; then
+  echo "run-behat: ERROR — MULTIDEV_SITE_URL is not set; cannot target a site." >&2
+  exit 1
+fi
+
+# Locate the behat binary. Projects that ship tests/behat are expected to
+# require behat (+ a Mink/Drupal extension) in composer require-dev.
+BEHAT_BIN=""
+if [ -x "vendor/bin/behat" ]; then
+  BEHAT_BIN="vendor/bin/behat"
+elif command -v behat >/dev/null 2>&1; then
+  BEHAT_BIN="$(command -v behat)"
+else
+  echo "run-behat: ERROR — behat not found at vendor/bin/behat or on PATH." >&2
+  echo "  Add it to your project: composer require --dev behat/behat behat/mink-extension drupal/drupal-extension" >&2
+  exit 1
+fi
+
+# Inject the multidev base_url into the Mink extension WITHOUT editing the
+# project's behat.yml. BEHAT_PARAMS is the documented Behat override hook;
+# the JSON is deep-merged over the config file's settings.
+export BEHAT_PARAMS="{\"extensions\":{\"Behat\\\\MinkExtension\":{\"base_url\":\"${URL}\"}}}"
+
+BEHAT_ARGS=()
+if [ -f "${BEHAT_CONFIG}" ]; then
+  BEHAT_ARGS+=("--config" "${BEHAT_CONFIG}")
+else
+  echo "run-behat: WARNING — ${BEHAT_CONFIG} not found; relying on behat's default config discovery."
+fi
+if [ -n "${BEHAT_PROFILE:-}" ]; then
+  BEHAT_ARGS+=("--profile" "${BEHAT_PROFILE}")
+fi
+
+echo "Running Behat against ${URL}"
+echo "  binary: ${BEHAT_BIN}"
+echo "  config: ${BEHAT_CONFIG}"
+echo "  profile: ${BEHAT_PROFILE:-<default>}"
+
+# A path containing a slash (vendor/bin/behat) executes directly; an
+# absolute path from `command -v` works too — no ./ prefix needed.
+"${BEHAT_BIN}" "${BEHAT_ARGS[@]}" --colors --no-interaction

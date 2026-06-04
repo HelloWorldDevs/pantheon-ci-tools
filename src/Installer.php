@@ -53,6 +53,7 @@ class Installer
         // Ensure destination directories exist
         $this->ensureDirectoryExists($destBase . '/.circleci');
         $this->ensureDirectoryExists($destBase . '/.ci/test/visual-regression');
+        $this->ensureDirectoryExists($destBase . '/.ci/test/functional');
         $this->ensureDirectoryExists($destBase . '/.ci/scripts');
         
         // Copy CircleCI config
@@ -113,6 +114,20 @@ class Installer
         $this->copyFile(
             $sourceBase . '/scripts/detect_web_root.sh',
             $destBase . '/.ci/scripts/detect_web_root.sh'
+        );
+        // Shared "wait until the multidev is serving" guard. Run first in
+        // the test jobs (playwright, behat) so cold-start spin-up doesn't
+        // leak into per-test flake.
+        $this->copyFile(
+            $sourceBase . '/scripts/check-multidev.sh',
+            $destBase . '/.ci/scripts/check-multidev.sh'
+        );
+        // Behat runner. Always installed; the behat_test job self-skips
+        // (circleci-agent step halt) when the project ships no tests/behat,
+        // and the script itself no-ops if the directory is absent.
+        $this->copyFile(
+            $sourceBase . '/.ci/test/functional/run-behat',
+            $destBase . '/.ci/test/functional/run-behat'
         );
 
         // Copy test files
