@@ -327,28 +327,46 @@ async function getAuthState(browser, baseUrl, auth) {
   const ctx = await browser.newContext({ ignoreHTTPSErrors: true });
   try {
     const page = await ctx.newPage();
+    // Use "load" (NOT "networkidle"): Drupal login pages routinely carry chat,
+    // analytics or reCAPTCHA widgets that keep the network busy indefinitely,
+    // so "networkidle" would burn the whole timeout for no benefit. "load"
+    // still guarantees scripts ran — which matters because the credential
+    // fields can be revealed by theme JS (see the toggle handling below).
     await page.goto(`${baseUrl}${loginUrl}`, {
-      waitUntil: "networkidle",
+      waitUntil: "load",
       timeout: 30000,
     });
-    // Optional pre-form step: some login pages hide the username/password
-    // fields behind a button/toggle (e.g. a "Log in with credentials" box
-    // you must click first). Click `preFormSelector` and wait for the
-    // username field to actually appear before filling.
-    if (auth.preFormSelector) {
-      await page.click(auth.preFormSelector);
-      await page.waitForSelector(usernameSelector, {
-        state: "visible",
-        timeout: 15000,
-      });
+
+    // Reveal the credential fields before filling. Some themes hide the form
+    // behind a toggle (`preFormSelector`) — BUT also auto-expand it when
+    // navigator.webdriver is true, which Playwright sets. In that case the
+    // form is ALREADY open, and clicking the toggle would flip it CLOSED again
+    // (the original timeout bug). So: only click the toggle when the username
+    // field isn't already visible, and confirm visibility afterward.
+    const usernameField = page.locator(usernameSelector).first();
+    let fieldVisible = await usernameField.isVisible().catch(() => false);
+    if (!fieldVisible && auth.preFormSelector) {
+      await page
+        .locator(auth.preFormSelector)
+        .first()
+        .click({ timeout: 15000 })
+        .catch(() => {});
+      fieldVisible = await usernameField
+        .waitFor({ state: "visible", timeout: 15000 })
+        .then(() => true)
+        .catch(() => false);
     }
-    await page.fill(usernameSelector, username);
-    await page.fill(passwordSelector, password);
+    if (!fieldVisible) {
+      // Behaviors may have attached late; give the field one final chance to
+      // appear (throws loudly if the selectors are genuinely wrong).
+      await usernameField.waitFor({ state: "visible", timeout: 15000 });
+    }
+
+    await usernameField.fill(username);
+    await page.locator(passwordSelector).first().fill(password);
     await Promise.all([
-      page
-        .waitForLoadState("networkidle", { timeout: 30000 })
-        .catch(() => {}),
-      page.click(submitSelector),
+      page.waitForLoadState("load", { timeout: 30000 }).catch(() => {}),
+      page.locator(submitSelector).first().click(),
     ]);
     if (auth.successSelector) {
       await page.waitForSelector(auth.successSelector, { timeout: 15000 });
@@ -357,7 +375,10 @@ async function getAuthState(browser, baseUrl, auth) {
     authStateCache.set(baseUrl, state);
     return state;
   } finally {
-    await ctx.close();
+    // Swallow close errors: if the surrounding test already timed out, the
+    // context may be torn down out from under us, and a throw here would mask
+    // the real failure.
+    await ctx.close().catch(() => {});
   }
 }
 
