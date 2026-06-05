@@ -604,7 +604,9 @@ jobs:
           fi
     # Pull the compiled theme assets staged by build_and_deploy. Cheap: the
     # workspace only carries the built CSS/JS (node_modules excluded), not the
-    # whole tree.
+    # whole tree. On the PR flow build_and_deploy runs first so this restores;
+    # on the master flow Behat runs BEFORE the build, so the workspace is empty
+    # here and the fallback build step below compiles the theme instead.
     - attach_workspace:
         at: /tmp/workspace
     - run:
@@ -612,7 +614,7 @@ jobs:
         command: |
           set -eo pipefail
           if [ ! -s /tmp/workspace/theme-path.txt ]; then
-            echo "No staged theme path — skipping (site may render unstyled)."
+            echo "No staged theme path — skipping (will try a local build next)."
             exit 0
           fi
           THEME_REL="$(cat /tmp/workspace/theme-path.txt)"
@@ -622,9 +624,38 @@ jobs:
             mkdir -p "${THEME_REL}"
             # Overlay built assets onto the checked-out theme source.
             cp -a "${SRC}/." "${THEME_REL}/"
+            # Flag downstream so the fallback build doesn't rebuild needlessly.
+            echo 'export THEME_RESTORED=1' >> "$BASH_ENV"
           else
-            echo "No staged theme assets at ${SRC} — skipping."
+            echo "No staged theme assets at ${SRC} — will try a local build next."
           fi
+    # Fallback theme build for when assets weren't carried from build_and_deploy
+    # (the master flow runs Behat first). Best-effort and NON-FATAL: it must
+    # never break the deploy gate, so every failure path just warns and the site
+    # may render unstyled. Picks up THEME_* from the project's env_vars.sh and/or
+    # CircleCI project env, then normalizes the web root.
+    - run:
+        name: Build theme locally if not carried from build
+        command: |
+          if [ "${THEME_RESTORED:-0}" = "1" ]; then
+            echo "Theme assets already restored from build — skipping local build."
+            exit 0
+          fi
+          [ -f ./.circleci/env_vars.sh ] && source ./.circleci/env_vars.sh || true
+          [ -f ./.ci/scripts/detect_web_root.sh ] && source ./.ci/scripts/detect_web_root.sh || true
+          if [ -z "${THEME_PATH:-}" ] || [ ! -d "${THEME_PATH}" ]; then
+            echo "No usable THEME_PATH — skipping theme build (site may be unstyled)."
+            exit 0
+          fi
+          if ! command -v npm >/dev/null 2>&1; then
+            echo "npm not available in this image — skipping theme build (site may be unstyled)."
+            exit 0
+          fi
+          echo "Building theme at ${THEME_PATH}"
+          ( cd "${THEME_PATH}" \
+              && bash -c "${THEME_INSTALL:-npm ci}" \
+              && bash -c "${THEME_BUILD:-npm run build}" ) \
+            || echo "Theme build failed — continuing (site may be unstyled)."
     - run:
         name: Configuring Drupal
         command: ./.ci/test/behat/configure-site
@@ -765,48 +796,168 @@ jobs:
         channel: C06G970M5PF
         template: basic_fail_1
 
-# [workflow] Main build, test, and notification workflow
+  # Compiles the theme on a Node image and stages the assets for the Behat jobs,
+  # WITHOUT depending on build_and_deploy. Used by the master flow, where Behat
+  # runs before the deploy and so can't inherit the deploy's theme build — and
+  # the Behat testing image may not ship npm. Stages into the exact workspace
+  # layout behat_setup's restore step expects (theme-build/<rel> + theme-path.txt).
+  # Self-skips when the project ships no tests/behat.
+  build_assets:
+    docker:
+    - image: cimg/node:20.11
+    working_directory: ~/project
+    steps:
+    - checkout
+    - run:
+        name: Skip if project has no tests/behat
+        command: |
+          if [ ! -d tests/behat ]; then
+            echo "No tests/behat — nothing to build for Behat."
+            circleci-agent step halt
+          fi
+    - run:
+        name: Build theme and stage assets for Behat
+        command: |
+          set -eo pipefail
+          # Always create the targets so persist_to_workspace never errors.
+          mkdir -p /tmp/workspace/theme-build
+          : > /tmp/workspace/theme-path.txt
+          # Resolve THEME_PATH/THEME_INSTALL/THEME_BUILD from the project's
+          # env_vars.sh and/or CircleCI project env, then normalize the web root.
+          [ -f ./.circleci/env_vars.sh ] && source ./.circleci/env_vars.sh || true
+          [ -f ./.ci/scripts/detect_web_root.sh ] && source ./.ci/scripts/detect_web_root.sh || true
+          if [ -z "${THEME_PATH:-}" ] || [ ! -d "${THEME_PATH}" ]; then
+            echo "No usable THEME_PATH — skipping theme build (Behat may be unstyled)."
+            exit 0
+          fi
+          echo "Building theme at ${THEME_PATH}"
+          # Non-fatal: the authoritative theme validation/gating lives in
+          # build_and_deploy. Stage whatever the build produces either way.
+          ( cd "${THEME_PATH}" \
+              && bash -c "${THEME_INSTALL:-npm ci}" \
+              && bash -c "${THEME_BUILD:-npm run build}" ) \
+            || echo "Theme build failed — staging whatever exists (Behat may be unstyled)."
+          THEME_REL="${THEME_PATH#./}"
+          printf '%s\n' "${THEME_REL}" > /tmp/workspace/theme-path.txt
+          mkdir -p "/tmp/workspace/theme-build/${THEME_REL}"
+          tar -C "${THEME_PATH}" --exclude=node_modules -cf - . \
+            | tar -C "/tmp/workspace/theme-build/${THEME_REL}" -xf -
+          echo "Staged compiled theme assets for Behat: ${THEME_REL}"
+    - persist_to_workspace:
+        root: /tmp/workspace
+        paths:
+        - theme-build/
+        - theme-path.txt
+
+# [workflows] Two orderings selected by branch:
+#
+#   • pr_build_test (all branches EXCEPT master): feature-branch / PR flow.
+#     Deploy to the multidev FIRST, then run tests against the live preview.
+#     Tests do not block the multidev deploy.
+#
+#   • master_test_then_deploy (master only → Pantheon dev): Behat runs FIRST and
+#     BLOCKS the deploy — master only deploys to dev if Behat passes. Playwright
+#     runs AFTER the deploy as a non-blocking check (nothing depends on it).
+#
+# The jobs are defined once under `jobs:` and reused in both workflows with
+# different `requires` + branch filters. Branch filters ensure only the matching
+# workflow's jobs actually run for a given branch.
 workflows:
-  build_test_notify:
+  # Feature-branch / PR flow: deploy to the multidev, then test it.
+  pr_build_test:
     jobs:
-    # [job] Pre-flight multidev capacity gate (runs before everything else).
-    # Jira contexts let it comment on the ticket when it blocks the build.
     - check_multidev_capacity:
+        filters:
+          branches:
+            ignore: master
         context:
         - GITHUB_TOKEN
         - JIRA_API_TOKEN
         - JIRA_WEBHOOK
-    # [job] Primary build and deployment job
     - build_and_deploy:
+        filters:
+          branches:
+            ignore: master
         requires:
         - check_multidev_capacity
         context:
         - GITHUB_TOKEN
-    # [job] Playwright visual regression tests
     - playwright_visual_tests:
+        filters:
+          branches:
+            ignore: master
         requires:
         - build_and_deploy
-        # [context] Shared secrets and environment variables
         context:
         - SLACK_ACCESS_TOKEN
         - JIRA_WEBHOOK_URL
-        # VRT login credentials for authenticated routes (auth:true in
-        # test_routes.json). This context carries both VRT_USERNAME and
-        # VRT_PASSWORD, read at runtime by the Playwright login helper.
+        # Carries both VRT_USERNAME and VRT_PASSWORD for authenticated routes.
         - VRT_USERNAME
-    # [job] Behat setup: install Drupal + export a DB dump once
-    # (self-skips when no tests/behat present)
     - behat_setup:
+        filters:
+          branches:
+            ignore: master
         requires:
         - build_and_deploy
         context:
         - GITHUB_TOKEN
         - SLACK_ACCESS_TOKEN
-    # [job] Behat functional tests: parallel run off the exported DB dump
-    # (self-skips when no tests/behat present)
     - behat_test:
+        filters:
+          branches:
+            ignore: master
         requires:
         - behat_setup
         context:
         - GITHUB_TOKEN
         - SLACK_ACCESS_TOKEN
+
+  # master flow: Behat gates the deploy to Pantheon dev.
+  master_test_then_deploy:
+    jobs:
+    # Build the theme first so Behat renders a styled site (the deploy job that
+    # would normally supply assets runs AFTER Behat here). No multidev capacity
+    # check needed — master deploys to the existing dev env, not a multidev.
+    - build_assets:
+        filters:
+          branches:
+            only: master
+    - behat_setup:
+        filters:
+          branches:
+            only: master
+        requires:
+        - build_assets
+        context:
+        - GITHUB_TOKEN
+        - SLACK_ACCESS_TOKEN
+    - behat_test:
+        filters:
+          branches:
+            only: master
+        requires:
+        - behat_setup
+        context:
+        - GITHUB_TOKEN
+        - SLACK_ACCESS_TOKEN
+    # Deploy to dev ONLY after Behat passes.
+    - build_and_deploy:
+        filters:
+          branches:
+            only: master
+        requires:
+        - behat_test
+        context:
+        - GITHUB_TOKEN
+    # Non-blocking VRT after the dev deploy. NOTE: VRT compares DEV vs MULTIDEV;
+    # on master there's no multidev, so treat results as informational.
+    - playwright_visual_tests:
+        filters:
+          branches:
+            only: master
+        requires:
+        - build_and_deploy
+        context:
+        - SLACK_ACCESS_TOKEN
+        - JIRA_WEBHOOK_URL
+        - VRT_USERNAME
