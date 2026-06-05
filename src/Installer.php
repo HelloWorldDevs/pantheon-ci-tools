@@ -53,7 +53,6 @@ class Installer
         // Ensure destination directories exist
         $this->ensureDirectoryExists($destBase . '/.circleci');
         $this->ensureDirectoryExists($destBase . '/.ci/test/visual-regression');
-        $this->ensureDirectoryExists($destBase . '/.ci/test/functional');
         $this->ensureDirectoryExists($destBase . '/.ci/scripts');
         
         // Copy CircleCI config
@@ -129,13 +128,13 @@ class Installer
             $sourceBase . '/scripts/check-multidev-capacity.sh',
             $destBase . '/.ci/scripts/check-multidev-capacity.sh'
         );
-        // Behat runner. Always installed; the behat_test job self-skips
-        // (circleci-agent step halt) when the project ships no tests/behat,
-        // and the script itself no-ops if the directory is absent.
-        $this->copyFile(
-            $sourceBase . '/.ci/test/functional/run-behat',
-            $destBase . '/.ci/test/functional/run-behat'
-        );
+        // NOTE: Behat support is config-only. The behat_setup/behat_test jobs in
+        // config.yml self-skip (circleci-agent step halt) unless the project
+        // ships a tests/behat directory, and they call PROJECT-SUPPLIED scripts
+        // under .ci/test/behat/ (configure-site, install-drupal, chrome.sh,
+        // run-tests-circle). Those are inherently project-specific (Drupal
+        // install steps, theme build, enabled modules), so the tool does not
+        // ship generic copies — projects that want Behat provide their own.
 
         // Copy test files
         $this->copyFile(

@@ -2,6 +2,8 @@
   "_auth_example": {
     "_comment": "Example only (ignored by the loader). To capture logged-in pages: rename this key to `auth`, then mark routes with auth:true. Credentials are NEVER stored here — set VRT_USERNAME and VRT_PASSWORD as CircleCI env vars. Override the env var names with usernameEnv/passwordEnv if needed.",
     "loginUrl": "/user/login",
+    "preFormSelector": "",
+    "_preFormSelector_comment": "Optional: a selector to click BEFORE the username/password fields are filled, for login pages that hide the form behind a button/toggle. Leave empty to skip.",
     "usernameSelector": "input[name=name]",
     "passwordSelector": "input[name=pass]",
     "submitSelector": "#edit-submit",

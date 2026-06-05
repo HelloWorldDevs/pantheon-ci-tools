@@ -16,6 +16,28 @@ executors:
     - image: mcr.microsoft.com/playwright:v1.52.0-noble
     working_directory: ~/project
 
+  # Behat executor: a Drupal/PHP testing image PLUS a MariaDB service container.
+  # The second image is what makes `dockerize -wait tcp://localhost:3306` work —
+  # it's the database listening on localhost:3306. The default `pantheon`
+  # executor is a single image with NO db service, which is why dockerize there
+  # hangs the full timeout and fails. The testing image ships dockerize, apache,
+  # drush, composer and headless chrome for functional Behat runs.
+  behat:
+    docker:
+    - image: helloworlddevs/atdove-testing-image:v1
+    - image: cimg/mariadb:10.6
+      environment:
+        MYSQL_ROOT_HOST: "%"
+        MYSQL_ROOT_PASSWORD: root
+        MYSQL_DATABASE: drupal
+        MYSQL_PASSWORD: root
+        MYSQL_USER: user
+        DRUPAL_DB_HOST: 127.0.0.1
+    working_directory: /var/www/project
+    environment:
+      TZ: "/usr/share/zoneinfo/America/Los_Angeles"
+      ADMIN_USERNAME: admin
+
 defaults: &defaults
   executor: pantheon
   working_directory: ~/project
@@ -504,24 +526,103 @@ jobs:
         debug: true
         pipeline_id: << pipeline.id >>
         pipeline_number: << pipeline.number >>
-  # Behat functional tests job.
+  # Behat functional tests — SETUP phase (runs once).
   #
-  # This job ALWAYS exists in the pipeline, but self-skips via
-  # `circleci-agent step halt` when the project ships no tests/behat
-  # directory — so the tool adapts automatically without re-running
-  # composer when a project adds or removes Behat coverage. The skip
-  # gate runs before the multidev wait so we never burn the ~5-minute
-  # readiness budget on a project that has no tests to run.
+  # Builds the project, installs Drupal into the MariaDB service container,
+  # then exports the installed DB as a gzip dump persisted to the workspace.
+  # The parallel `behat_test` containers import that dump instead of each
+  # re-installing Drupal from scratch — turning an N×(slow install) cost into
+  # 1×install + N×(fast import).
+  #
+  # Like every test job here it self-skips via `circleci-agent step halt` when
+  # the project ships no tests/behat directory, so the tool adapts to projects
+  # with or without Behat coverage with no config changes.
+  behat_setup:
+    executor: behat
+    resource_class: small
+    steps:
+    - checkout
+    # [gate] Skip the whole job unless the project ships Behat tests. Runs
+    # first so a Behat-less project never pays for the DB install/export.
+    - run:
+        name: Skip if project has no tests/behat
+        command: |
+          if [ ! -d tests/behat ]; then
+            echo "No tests/behat directory in this project — skipping Behat setup."
+            circleci-agent step halt
+          fi
+    - run:
+        name: Start XVFB
+        command: |
+          export DISPLAY=:99.0
+          Xvfb :99 -screen 0 1280x1024x16 &
+    - run:
+        name: Setting PHP vars
+        command: |
+          echo 'memory_limit = -1' | sudo tee -a /usr/local/etc/php/conf.d/docker-php-memlimit.ini
+          echo 'memory_limit = -1' | sudo tee -a /usr/local/etc/php/conf.d/memory.ini
+          echo "display_errors = On" | sudo tee /usr/local/etc/php/conf.d/display_errors.ini
+          echo "display_startup_errors = On" | sudo tee -a /usr/local/etc/php/conf.d/display_errors.ini
+          echo "error_reporting = E_ALL" | sudo tee -a /usr/local/etc/php/conf.d/display_errors.ini
+    # Behat runs against a LOCAL Drupal install (its own DB), independent of the
+    # Pantheon deploy — so we build vendor/ here rather than relying on a
+    # persisted build artifact (this pipeline's build_and_deploy doesn't ship
+    # one). Project-specific asset builds (gulp/npm) should live in configure-site.
+    - run:
+        name: Composer install
+        command: |
+          if [ -f composer.json ]; then
+            composer install --no-ansi --no-interaction --optimize-autoloader --no-progress
+          else
+            echo "No composer.json found, skipping composer install."
+          fi
+    - run:
+        name: Configuring Drupal
+        command: ./.ci/test/behat/configure-site
+    - run:
+        name: Create DB
+        command: |
+          dockerize -wait tcp://localhost:3306 -timeout 4m
+          mysql -h 127.0.0.1 -P 3306 -u root -proot -e "CREATE DATABASE circle_test;"
+    - run:
+        name: Installing Drupal and importing config
+        command: ./.ci/test/behat/install-drupal
+        no_output_timeout: 30m
+    - run:
+        name: Disable Hubspot module
+        command: ./vendor/bin/drush pm:uninstall hubspot -y || echo "Hubspot not enabled"
+    - run:
+        name: Clear Drupal Cache
+        command: ./vendor/bin/drush cr
+    - run:
+        name: Export database for parallel jobs
+        command: |
+          mkdir -p ./tmp/behat-db-export
+          ./vendor/bin/drush sql-dump --gzip > ./tmp/behat-db-export/drupal-installed.sql.gz
+          echo "Database exported to ./tmp/behat-db-export/drupal-installed.sql.gz"
+          ls -lh ./tmp/behat-db-export/
+    # Persist the built tree (vendor/, config, etc.) AND the DB dump so the
+    # parallel test containers can attach and run without rebuilding.
+    - persist_to_workspace:
+        root: .
+        paths:
+        - ./tmp/behat-db-export
+        - .
+
+  # Behat functional tests — RUN phase (parallelized).
+  #
+  # Attaches the built tree + DB dump from behat_setup, imports the dump into
+  # its own MariaDB service container, then runs its shard of the Behat suite.
+  # Self-skips when the project ships no tests/behat directory.
   behat_test:
-    <<: *defaults
+    executor: behat
     resource_class: medium
     parallelism: 12
     steps:
-    - checkout
-    # [persist][vars] Pull the deploy env (multidev URL etc.) from the build job.
+    # Pull the built tree + DB dump from behat_setup into the working dir.
     - attach_workspace:
-        at: /tmp/workspace
-    # [gate] Skip the whole job unless the project ships Behat tests.
+        at: .
+    # [gate] Skip unless the project ships Behat tests.
     - run:
         name: Skip if project has no tests/behat
         command: |
@@ -534,7 +635,6 @@ jobs:
         command: |
           export DISPLAY=:99.0
           Xvfb :99 -screen 0 1280x1024x16 &
-    # [vars] Load saved environment variables (MULTIDEV_SITE_URL, etc.).
     - run:
         name: Setting PHP vars
         command: |
@@ -591,9 +691,6 @@ jobs:
           sleep 2
           # Make a request to the homepage to trigger Drupal bootstrap and H5P library initialization
           curl -s -o /dev/null -w "%{http_code}" http://drupal-circleci-behat.localhost/ || echo "Page load triggered (exit code $?)"
-    # - run:
-    #     name: Run Behat Tests
-    #     command: ./.ci/test/behat/chrome.sh && ./vendor/bin/behat --config ./tests/behat/behat.yml --suite default --rerun --profile circleci -f pretty -o std -f junit -o ./tests/behat/results/junit/junit.xml
     - run:
         name: Split and run Behat tests
         command: |
@@ -612,7 +709,7 @@ jobs:
         destination: behat-test-logs
     - run:
         name: Enable Hubspot module
-        command: ./vendor/bin/drush pm-enable hubspot -y
+        command: ./vendor/bin/drush pm-enable hubspot -y || echo "Hubspot not present"
     # [notify] Notify Slack on failure
     - slack/notify:
         event: fail
@@ -648,10 +745,19 @@ workflows:
         # test_routes.json). This context carries both VRT_USERNAME and
         # VRT_PASSWORD, read at runtime by the Playwright login helper.
         - VRT_USERNAME
-    # [job] Behat functional tests (self-skips when no tests/behat present)
-    - behat_test:
+    # [job] Behat setup: install Drupal + export a DB dump once
+    # (self-skips when no tests/behat present)
+    - behat_setup:
         requires:
         - build_and_deploy
+        context:
+        - GITHUB_TOKEN
+        - SLACK_ACCESS_TOKEN
+    # [job] Behat functional tests: parallel run off the exported DB dump
+    # (self-skips when no tests/behat present)
+    - behat_test:
+        requires:
+        - behat_setup
         context:
         - GITHUB_TOKEN
         - SLACK_ACCESS_TOKEN

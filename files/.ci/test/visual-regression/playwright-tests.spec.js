@@ -17,6 +17,9 @@
  *   {
  *     "auth": {
  *       "loginUrl": "/user/login",            // default: /user/login
+ *       "preFormSelector": ".show-login",     // optional: click to reveal the
+ *                                             //   fields (some themes hide the
+ *                                             //   login form behind a button)
  *       "usernameSelector": "input[name=name]", // Drupal core defaults
  *       "passwordSelector": "input[name=pass]",
  *       "submitSelector": "#edit-submit",
@@ -328,6 +331,17 @@ async function getAuthState(browser, baseUrl, auth) {
       waitUntil: "networkidle",
       timeout: 30000,
     });
+    // Optional pre-form step: some login pages hide the username/password
+    // fields behind a button/toggle (e.g. a "Log in with credentials" box
+    // you must click first). Click `preFormSelector` and wait for the
+    // username field to actually appear before filling.
+    if (auth.preFormSelector) {
+      await page.click(auth.preFormSelector);
+      await page.waitForSelector(usernameSelector, {
+        state: "visible",
+        timeout: 15000,
+      });
+    }
     await page.fill(usernameSelector, username);
     await page.fill(passwordSelector, password);
     await Promise.all([
