@@ -425,6 +425,28 @@ jobs:
             echo "export DEV_SITE_URL='${DEV_SITE_URL}'"
           } > /tmp/workspace/env_vars.sh
 
+          # Carry the COMPILED theme assets to the Behat jobs. Those jobs do a
+          # fresh checkout + composer install and do NOT build the theme, so the
+          # gitignored built CSS/JS (dist/, css/, js/) produced above is absent
+          # there and the site renders unstyled — which breaks Behat steps that
+          # rely on CSS-driven visibility. Stage the theme dir (minus
+          # node_modules) and record its project-relative path so Behat can
+          # restore it to the same location (THEME_PATH isn't recomputed there).
+          # Always create the targets so persist_to_workspace never errors on a
+          # missing path, even when THEME_PATH is unset.
+          mkdir -p /tmp/workspace/theme-build
+          : > /tmp/workspace/theme-path.txt
+          if [ -n "${THEME_PATH:-}" ] && [ -d "${THEME_PATH}" ]; then
+            THEME_REL="${THEME_PATH#./}"
+            printf '%s\n' "${THEME_REL}" > /tmp/workspace/theme-path.txt
+            mkdir -p "/tmp/workspace/theme-build/${THEME_REL}"
+            tar -C "${THEME_PATH}" --exclude=node_modules -cf - . \
+              | tar -C "/tmp/workspace/theme-build/${THEME_REL}" -xf -
+            echo "Staged compiled theme assets for Behat: ${THEME_REL}"
+          else
+            echo "THEME_PATH unset or missing — no theme assets staged for Behat."
+          fi
+
           # Debug: Show what we're saving
           echo "=== Workspace Contents ==="
           ls -la /tmp/workspace
@@ -440,6 +462,10 @@ jobs:
         - .circleci/
         - .git/
         - test_routes.json
+        # Compiled theme assets + their project-relative path, consumed by the
+        # Behat jobs (which don't build the theme themselves).
+        - theme-build/
+        - theme-path.txt
 
   # Playwright visual regression testing job
   playwright_visual_tests:
@@ -575,6 +601,29 @@ jobs:
             composer install --no-ansi --no-interaction --optimize-autoloader --no-progress
           else
             echo "No composer.json found, skipping composer install."
+          fi
+    # Pull the compiled theme assets staged by build_and_deploy. Cheap: the
+    # workspace only carries the built CSS/JS (node_modules excluded), not the
+    # whole tree.
+    - attach_workspace:
+        at: /tmp/workspace
+    - run:
+        name: Restore compiled theme assets from build
+        command: |
+          set -eo pipefail
+          if [ ! -s /tmp/workspace/theme-path.txt ]; then
+            echo "No staged theme path — skipping (site may render unstyled)."
+            exit 0
+          fi
+          THEME_REL="$(cat /tmp/workspace/theme-path.txt)"
+          SRC="/tmp/workspace/theme-build/${THEME_REL}"
+          if [ -n "${THEME_REL}" ] && [ -d "${SRC}" ]; then
+            echo "Restoring compiled theme assets to ${THEME_REL}"
+            mkdir -p "${THEME_REL}"
+            # Overlay built assets onto the checked-out theme source.
+            cp -a "${SRC}/." "${THEME_REL}/"
+          else
+            echo "No staged theme assets at ${SRC} — skipping."
           fi
     - run:
         name: Configuring Drupal
