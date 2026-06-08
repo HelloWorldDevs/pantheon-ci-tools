@@ -7,7 +7,7 @@ set -e  # Exit on any error
 
 # Debug: Print environment variables
 echo "=== Environment Variables in Run Script ==="
-set | grep -E 'DEV_SITE_URL|MULTIDEV_SITE_URL|TERMINUS_'
+set | grep -E 'DEV_SITE_URL|MULTIDEV_SITE_URL|LIVE_SITE_URL|VRT_REFERENCE_URL|VRT_TARGET_URL|TERMINUS_'
 echo "==========================================="
 
 # Variables
@@ -15,16 +15,25 @@ BUILD_DIR=$(pwd)
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 ARTIFACTS_DIR="${ARTIFACTS_FULL_DIR:-/tmp/artifacts}"
 
+# Which environments to compare. The job sets these per workflow:
+#   • PR flow:     REFERENCE = dev   (baseline), TARGET = multidev (new code)
+#   • master flow: REFERENCE = prod  (baseline), TARGET = dev      (new code)
+# Defaults preserve the original PR behavior when the job passes nothing.
+#   REFERENCE_URL → snapshots are generated FROM this ("known good").
+#   TARGET_URL    → compared AGAINST the baseline (the candidate under test).
+REFERENCE_URL="${VRT_REFERENCE_URL:-${DEV_SITE_URL}}"
+TARGET_URL="${VRT_TARGET_URL:-${MULTIDEV_SITE_URL}}"
+
 # Verify required environment variables
-if [ -z "${MULTIDEV_SITE_URL}" ] || [ -z "${DEV_SITE_URL}" ]; then
+if [ -z "${TARGET_URL}" ] || [ -z "${REFERENCE_URL}" ]; then
     echo "ERROR: Required environment variables are not set"
-    echo "MULTIDEV_SITE_URL: ${MULTIDEV_SITE_URL:-Not Set}"
-    echo "DEV_SITE_URL: ${DEV_SITE_URL:-Not Set}"
+    echo "REFERENCE_URL (baseline): ${REFERENCE_URL:-Not Set}"
+    echo "TARGET_URL (candidate):   ${TARGET_URL:-Not Set}"
     exit 1
 fi
 
-echo "Using multidev URL: $MULTIDEV_SITE_URL"
-echo "Using dev URL: $DEV_SITE_URL"
+echo "Using REFERENCE (baseline) URL: $REFERENCE_URL"
+echo "Using TARGET (candidate) URL:   $TARGET_URL"
 
 # ---------------------------------------------------------------------------
 # Cache pre-warming
@@ -94,8 +103,8 @@ warm_caches() {
 
   while IFS= read -r path_only; do
     [ -z "${path_only}" ] && continue
-    printf '%s\n' "${DEV_SITE_URL}${path_only}" >> "${urls_file}"
-    printf '%s\n' "${MULTIDEV_SITE_URL}${path_only}" >> "${urls_file}"
+    printf '%s\n' "${REFERENCE_URL}${path_only}" >> "${urls_file}"
+    printf '%s\n' "${TARGET_URL}${path_only}" >> "${urls_file}"
   done < <(extract_route_paths "${routes_file}")
 
   if [ ! -s "${urls_file}" ]; then
@@ -139,10 +148,10 @@ if ROUTES_FILE=$(find_routes_json); then
   warm_caches "${ROUTES_FILE}"
 else
   echo "Warning: could not find test_routes.json — falling back to bare-URL pings"
-  curl -sIL -o /dev/null --max-time 90 "$MULTIDEV_SITE_URL" \
-    || echo "Warning: Failed to ping $MULTIDEV_SITE_URL"
-  curl -sIL -o /dev/null --max-time 90 "$DEV_SITE_URL" \
-    || echo "Warning: Failed to ping $DEV_SITE_URL"
+  curl -sIL -o /dev/null --max-time 90 "$TARGET_URL" \
+    || echo "Warning: Failed to ping $TARGET_URL"
+  curl -sIL -o /dev/null --max-time 90 "$REFERENCE_URL" \
+    || echo "Warning: Failed to ping $REFERENCE_URL"
 fi
 
 
@@ -174,7 +183,7 @@ rm -rf playwright-tests.spec.js-snapshots
 # not a tool config).
 echo "Running test with UPDATE_SNAPSHOTS flag to create baseline images..."
 set +e
-TESTING_URL=$DEV_SITE_URL npx playwright test --update-snapshots --retries=0
+TESTING_URL=$REFERENCE_URL npx playwright test --update-snapshots --retries=0
 set -e
 
 echo ""
@@ -189,7 +198,7 @@ echo "Running tests without UPDATE_MODE to perform comparisons..."
 # Wrap in set +e: under `set -e` a non-zero exit here would abort the script
 # BEFORE the retry block below ever ran (that block was effectively dead code).
 set +e
-TESTING_URL=$MULTIDEV_SITE_URL npx playwright test
+TESTING_URL=$TARGET_URL npx playwright test
 TEST_EXIT_CODE=$?
 set -e
 
@@ -226,7 +235,7 @@ if [ $TEST_EXIT_CODE -ne 0 ]; then
   # and runs only the failed specs. Cuts retry-pass wall time proportional
   # to the failure ratio (e.g. 6 failed of 66 → 10x faster retry pass).
   set +e
-  TESTING_URL=$MULTIDEV_SITE_URL RETRY_WITH_HIGHER_THRESHOLD=true \
+  TESTING_URL=$TARGET_URL RETRY_WITH_HIGHER_THRESHOLD=true \
     npx playwright test --last-failed
   RETRY_EXIT_CODE=$?
   set -e

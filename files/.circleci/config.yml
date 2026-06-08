@@ -66,6 +66,19 @@ jobs:
   build_and_deploy:
     <<: *defaults
     resource_class: small
+    parameters:
+      # Deployment target recorded in the Jira issue's deployment panel. A URL
+      # is fine; env vars (e.g. ${MULTIDEV_SITE_URL}/${DEV_SITE_URL}) expand at
+      # runtime since build_and_deploy exports them to $BASH_ENV.
+      jira_environment:
+        type: string
+        default: "${MULTIDEV_SITE_URL}"
+      # Atlassian's deployment category is a FIXED enum — "multidev"/"dev" are
+      # NOT accepted. We map: multidev → development, dev → staging.
+      jira_environment_type:
+        type: enum
+        enum: ["production", "staging", "testing", "development", "unmapped"]
+        default: "development"
     steps:
     # [setup] Checkout code and set up Docker
     - checkout
@@ -103,6 +116,7 @@ jobs:
             echo "export JIRA_TICKET_ID='$JIRA_TICKET_ID'"
             echo "export MULTIDEV_SITE_URL='$MULTIDEV_SITE_URL'"
             echo "export DEV_SITE_URL='$DEV_SITE_URL'"
+            echo "export LIVE_SITE_URL='$LIVE_SITE_URL'"
 
             # Web-root + corrected theme path (computed by setup_vars.sh).
             # Exporting both means every later step (Load env, Verify,
@@ -217,25 +231,35 @@ jobs:
 
           echo "Required theme variables verified: THEME_PATH=${THEME_PATH}, THEME_INSTALL=${THEME_INSTALL}, THEME_BUILD=${THEME_BUILD}"
 
-    # Use npm ci instead of npm install if you want to install dependencies
-    # according to the exact versions in package-lock.json.
+    # Reuse the theme already compiled by build_assets for THIS commit (master
+    # flow) instead of rebuilding. Selective cache restore keyed on the commit
+    # SHA — cheap, and avoids attaching behat_setup's heavy full-tree workspace.
+    # No hit (PR flow, where build_and_deploy runs first) → the step below falls
+    # through to a normal build.
+    - restore_cache:
+        keys:
+        - theme-compiled-v1-{{ .Revision }}
     # NOTE: THEME_INSTALL/THEME_BUILD are invoked via `bash -c` so shell
-    # operators inside the value (e.g. `npm ci && npm run build`) are
-    # parsed as operators, not passed as literal args. With bare
-    # `${THEME_INSTALL}` expansion they'd word-split and npm would silently
-    # receive `&&` as a positional argument and skip everything after it.
+    # operators inside the value (e.g. `npm ci && npm run build`) are parsed as
+    # operators, not passed as literal args. With bare `${THEME_INSTALL}`
+    # expansion they'd word-split and npm would silently receive `&&` as a
+    # positional argument and skip everything after it.
     - run:
-        name: Installing NPM dependencies in theme
+        name: Build theme (reuse build_assets' compiled output if cached)
         command: |
-          cd "${THEME_PATH}"
-          bash -c "${THEME_INSTALL}"
-
-    # Your existing steps for building assets
-    - run:
-        name: Compiling SCSS to CSS, minifying JS
-        command: |
-          cd "${THEME_PATH}"
-          bash -c "${THEME_BUILD}"
+          set -eo pipefail
+          THEME_REL="$(cat /tmp/workspace/theme-path.txt 2>/dev/null || true)"
+          STAGED="/tmp/workspace/theme-build/${THEME_REL}"
+          if [ -n "${THEME_REL}" ] && [ -d "${STAGED}" ]; then
+            echo "Reusing theme compiled by build_assets for this commit: ${THEME_REL}"
+            mkdir -p "${THEME_PATH}"
+            cp -a "${STAGED}/." "${THEME_PATH}/"
+          else
+            echo "No cached theme build for this commit — building now."
+            cd "${THEME_PATH}"
+            bash -c "${THEME_INSTALL}"
+            bash -c "${THEME_BUILD}"
+          fi
 
     # Diagnostic: prove the build produced files before we try to ship them.
     # If styles ever go missing from a deploy, this output is the first
@@ -467,11 +491,35 @@ jobs:
         - theme-build/
         - theme-path.txt
 
+    # [notify][jira] Record this deploy in the Jira issue's deployment panel.
+    # `environment` is the deployed URL (env vars expand at runtime); each
+    # workflow passes the right URL + Atlassian category via job parameters
+    # (PR → multidev URL/development, master → dev URL/staging). Needs the
+    # JIRA_WEBHOOK_URL context. Last step so it reflects the job's outcome.
+    - jira/notify:
+        job_type: deployment
+        environment: << parameters.jira_environment >>
+        environment_type: << parameters.jira_environment_type >>
+        pipeline_id: << pipeline.id >>
+        pipeline_number: << pipeline.number >>
+
   # Playwright visual regression testing job
   playwright_visual_tests:
     executor: playwright
     resource_class: medium
     working_directory: /tmp/workspace
+    parameters:
+      # Which environments VRT compares. Snapshots are generated FROM the
+      # reference (baseline); the target (new code) is compared against them.
+      #   • PR flow (default): reference = dev,  target = multidev
+      #   • master flow:        reference = prod, target = dev
+      # URLs (env vars expand at runtime since env_vars.sh is sourced first).
+      vrt_reference_url:
+        type: string
+        default: "${DEV_SITE_URL}"
+      vrt_target_url:
+        type: string
+        default: "${MULTIDEV_SITE_URL}"
     environment:
       ARTIFACTS_FULL_DIR: /tmp/workspace/artifacts
     steps:
@@ -529,20 +577,26 @@ jobs:
           # If issues persist, can switch to 'npx playwright install --with-deps'
           npx playwright install
           echo "Running Playwright tests..."
+          # Per-workflow comparison targets (PR: dev↔multidev, master: prod↔dev).
+          # Exported here so run-playwright picks them up; env vars in the param
+          # values expand now (env_vars.sh was sourced above).
+          export VRT_REFERENCE_URL="<< parameters.vrt_reference_url >>"
+          export VRT_TARGET_URL="<< parameters.vrt_target_url >>"
+          echo "VRT reference (baseline): $VRT_REFERENCE_URL"
+          echo "VRT target (candidate):   $VRT_TARGET_URL"
           chmod +x ./run-playwright
           ./run-playwright
 
     # [artifacts] Store screenshots with visual comparison reports.
-    # when:always so the diff report is available even when the suite fails —
-    # that report is exactly what the Slack message links people to.
+    # store_artifacts/store_test_results run even after a failed step by default,
+    # so the diff report (what the Slack message links to) is captured on failure
+    # too — no `when` needed (and `when` is redundant on these step types).
     - store_artifacts:
         path: /tmp/workspace/.ci/test/visual-regression/playwright-report
-        when: always
 
     # [artifacts] Store JUnit test results
     - store_test_results:
         path: /tmp/workspace/.ci/test/visual-regression/test-results
-        when: always
 
     # [notify] Build a Slack message naming the failed tests. Runs only on
     # failure; reads the list run-playwright wrote from the JSON report and
@@ -591,10 +645,11 @@ jobs:
               }
             ]
           }
-    # [notify][jira] Send notification to Jira
+    # [notify][jira] Report the VRT run to Jira as a BUILD (not a deployment) —
+    # this job tests an already-deployed env, it doesn't deploy. The actual
+    # deployment record is emitted by build_and_deploy.
     - jira/notify:
-        environment: testing
-        job_type: deployment
+        job_type: build
         debug: true
         pipeline_id: << pipeline.id >>
         pipeline_number: << pipeline.number >>
@@ -834,23 +889,20 @@ jobs:
         command: |
           ./.ci/test/behat/chrome.sh
           ./.ci/test/behat/run-tests-circle
-    # when:always so results/logs land even when scenarios fail — that's the
-    # report the Slack message points people to.
+    # store_artifacts/store_test_results run even after a failed step by default,
+    # so results/logs (what the Slack message points to) land on failure too —
+    # no `when` needed (and `when` is redundant on these step types).
     - store_artifacts:
         path: ./tests/behat/results
         destination: artifacts
-        when: always
     - store_test_results:
         path: ./tests/behat/results
-        when: always
     - store_artifacts:
         path: /tmp/chrome.log
         destination: artifact-files
-        when: always
     - store_artifacts:
         path: /tmp/test_messages.log
         destination: behat-test-logs
-        when: always
     - run:
         name: Enable Hubspot module
         when: always
@@ -1009,6 +1061,16 @@ jobs:
         paths:
         - theme-build/
         - theme-path.txt
+    # Cache the compiled theme keyed on the exact commit so build_and_deploy can
+    # reuse it instead of rebuilding (master flow). Keyed on {{ .Revision }} so a
+    # new commit always rebuilds. A selective cache restore is what lets
+    # build_and_deploy grab just the theme — attaching the workspace would also
+    # pull behat_setup's heavy full-tree persist.
+    - save_cache:
+        key: theme-compiled-v1-{{ .Revision }}
+        paths:
+        - /tmp/workspace/theme-build
+        - /tmp/workspace/theme-path.txt
 
 # [workflows] Two orderings selected by branch:
 #
@@ -1041,8 +1103,12 @@ workflows:
             ignore: master
         requires:
         - check_multidev_capacity
+        # PR deploys land on the multidev; record it as a "development" deploy.
+        jira_environment: "${MULTIDEV_SITE_URL}"
+        jira_environment_type: development
         context:
         - GITHUB_TOKEN
+        - JIRA_WEBHOOK_URL
     - playwright_visual_tests:
         filters:
           branches:
@@ -1111,16 +1177,24 @@ workflows:
             only: master
         requires:
         - behat_test
+        # master deploys to Pantheon's dev env; recorded as a "development"
+        # deploy (Atlassian has no "dev" category — see job parameter notes).
+        jira_environment: "${DEV_SITE_URL}"
+        jira_environment_type: development
         context:
         - GITHUB_TOKEN
-    # Non-blocking VRT after the dev deploy. NOTE: VRT compares DEV vs MULTIDEV;
-    # on master there's no multidev, so treat results as informational.
+        - JIRA_WEBHOOK_URL
+    # VRT after the dev deploy: compares the freshly-deployed DEV (candidate)
+    # against PROD/LIVE (baseline) to catch visual regressions this release
+    # introduces vs production. Runs after the deploy (doesn't block it).
     - playwright_visual_tests:
         filters:
           branches:
             only: master
         requires:
         - build_and_deploy
+        vrt_reference_url: "${LIVE_SITE_URL}"
+        vrt_target_url: "${DEV_SITE_URL}"
         context:
         - SLACK_ACCESS_TOKEN
         - JIRA_WEBHOOK_URL
