@@ -532,19 +532,65 @@ jobs:
           chmod +x ./run-playwright
           ./run-playwright
 
-    # [artifacts] Store screenshots with visual comparison reports
+    # [artifacts] Store screenshots with visual comparison reports.
+    # when:always so the diff report is available even when the suite fails —
+    # that report is exactly what the Slack message links people to.
     - store_artifacts:
         path: /tmp/workspace/.ci/test/visual-regression/playwright-report
+        when: always
 
     # [artifacts] Store JUnit test results
     - store_test_results:
         path: /tmp/workspace/.ci/test/visual-regression/test-results
+        when: always
 
-    # [notify] Notify Slack on failure
+    # [notify] Build a Slack message naming the failed tests. Runs only on
+    # failure; reads the list run-playwright wrote from the JSON report and
+    # exports SLACK_FAILURE_TEXT (mrkdwn) for the slack/notify step below.
+    - run:
+        name: Summarize Playwright failures for Slack
+        when: on_fail
+        command: |
+          cd /tmp/workspace/.ci/test/visual-regression || exit 0
+          F=test-results/slack-failures.txt
+          COUNT=0
+          LIST=""
+          if [ -s "$F" ]; then
+            COUNT=$(grep -c . "$F" 2>/dev/null || echo 0)
+            # Strip chars that would break the JSON string or re-trigger shell
+            # expansion when sourced from BASH_ENV (" \ $ `), bullet each line,
+            # then join with a LITERAL \n (Slack renders it as a newline).
+            LIST=$(sed -e 's/[\\"$`]//g' "$F" \
+                     | sed '/^[[:space:]]*$/d' \
+                     | sed 's/^/• /' \
+                     | awk 'NR==1{printf "%s",$0} NR>1{printf "\\n%s",$0}')
+          fi
+          [ -n "$LIST" ] || LIST="• (see the Playwright report in the Artifacts tab)"
+          TEXT="*Visual regression failed:* ${CIRCLE_PROJECT_REPONAME} (${CIRCLE_BRANCH})\\n\\n*${COUNT} test(s) failed:*\\n${LIST}\\n\\n<${CIRCLE_BUILD_URL}|Open the CircleCI job> — full diff report is under the *Artifacts* tab."
+          echo "export SLACK_FAILURE_TEXT=\"${TEXT}\"" >> "$BASH_ENV"
+    # [notify] Notify Slack on failure with the named failures + report link.
     - slack/notify:
         event: fail
         channel: C06G970M5PF
-        template: basic_fail_1
+        custom: |
+          {
+            "blocks": [
+              {
+                "type": "section",
+                "text": { "type": "mrkdwn", "text": "${SLACK_FAILURE_TEXT}" }
+              },
+              {
+                "type": "actions",
+                "elements": [
+                  {
+                    "type": "button",
+                    "text": { "type": "plain_text", "text": "View job & diff report", "emoji": true },
+                    "url": "${CIRCLE_BUILD_URL}"
+                  }
+                ]
+              }
+            ]
+          }
     # [notify][jira] Send notification to Jira
     - jira/notify:
         environment: testing
@@ -605,8 +651,8 @@ jobs:
     # Pull the compiled theme assets staged upstream. Cheap: the workspace only
     # carries the built CSS/JS (node_modules excluded), not the whole tree.
     #   • PR flow:     build_and_deploy runs first and stages them.
-    #   • master flow: the dedicated build_assets job (Node image) runs first and
-    #                  stages them — the behat image has no npm to build itself.
+    #   • master flow: the dedicated build_assets job (build-tools-ci image, with
+    #                  Composer + Node) runs first and stages them.
     # Either way the assets are present in the workspace here and get restored
     # below. The in-job fallback build is only a last resort if neither upstream
     # staged anything AND this image happens to have npm.
@@ -788,36 +834,102 @@ jobs:
         command: |
           ./.ci/test/behat/chrome.sh
           ./.ci/test/behat/run-tests-circle
+    # when:always so results/logs land even when scenarios fail — that's the
+    # report the Slack message points people to.
     - store_artifacts:
         path: ./tests/behat/results
         destination: artifacts
+        when: always
     - store_test_results:
         path: ./tests/behat/results
+        when: always
     - store_artifacts:
         path: /tmp/chrome.log
         destination: artifact-files
+        when: always
     - store_artifacts:
         path: /tmp/test_messages.log
         destination: behat-test-logs
+        when: always
     - run:
         name: Enable Hubspot module
+        when: always
         command: ./vendor/bin/drush pm-enable hubspot -y || echo "Hubspot not present"
-    # [notify] Notify Slack on failure
+    # [notify] Build a Slack message naming the failed Behat scenarios. Runs
+    # only on failure; parses the JUnit XML the runner wrote and exports
+    # SLACK_FAILURE_TEXT (mrkdwn) for the slack/notify step below. Best-effort:
+    # the Behat runner/format is project-supplied, so it falls back to a link.
+    - run:
+        name: Summarize Behat failures for Slack
+        when: on_fail
+        command: |
+          RESULTS_DIR=./tests/behat/results
+          COUNT=0
+          LIST=""
+          if ls "${RESULTS_DIR}"/*.xml >/dev/null 2>&1; then
+            # Pull the name="..." of every <testcase> that contains a <failure>
+            # or <error>. Handles the common multi-line JUnit layout; self-closed
+            # (passing) testcases are ignored.
+            FAILED=$(awk '
+              /<testcase/ {
+                name=$0
+                sub(/.*name="/, "", name)
+                sub(/".*/, "", name)
+                cur=name
+                if ($0 ~ /\/>/) cur=""
+              }
+              /<(failure|error)/ { if (cur != "") { print cur; cur="" } }
+            ' "${RESULTS_DIR}"/*.xml 2>/dev/null | sort -u)
+            if [ -n "$FAILED" ]; then
+              COUNT=$(printf '%s\n' "$FAILED" | grep -c .)
+              LIST=$(printf '%s\n' "$FAILED" \
+                       | sed -e 's/[\\"$`]//g' \
+                       | sed '/^[[:space:]]*$/d' \
+                       | sed 's/^/• /' \
+                       | awk 'NR==1{printf "%s",$0} NR>1{printf "\\n%s",$0}')
+            fi
+          fi
+          [ -n "$LIST" ] || LIST="• (see the Behat results in the Artifacts tab)"
+          TEXT="*Behat tests failed:* ${CIRCLE_PROJECT_REPONAME} (${CIRCLE_BRANCH})\\n\\n*${COUNT} scenario(s) failed:*\\n${LIST}\\n\\n<${CIRCLE_BUILD_URL}|Open the CircleCI job> — results are under the *Artifacts* tab."
+          echo "export SLACK_FAILURE_TEXT=\"${TEXT}\"" >> "$BASH_ENV"
+    # [notify] Notify Slack on failure with the named scenarios + report link.
     - slack/notify:
         event: fail
         channel: C06G970M5PF
-        template: basic_fail_1
+        custom: |
+          {
+            "blocks": [
+              {
+                "type": "section",
+                "text": { "type": "mrkdwn", "text": "${SLACK_FAILURE_TEXT}" }
+              },
+              {
+                "type": "actions",
+                "elements": [
+                  {
+                    "type": "button",
+                    "text": { "type": "plain_text", "text": "View job & results", "emoji": true },
+                    "url": "${CIRCLE_BUILD_URL}"
+                  }
+                ]
+              }
+            ]
+          }
 
-  # Compiles the theme on a Node image and stages the assets for the Behat jobs,
-  # WITHOUT depending on build_and_deploy. Used by the master flow, where Behat
-  # runs before the deploy and so can't inherit the deploy's theme build — and
-  # the Behat testing image may not ship npm. Stages into the exact workspace
-  # layout behat_setup's restore step expects (theme-build/<rel> + theme-path.txt).
-  # Self-skips when the project ships no tests/behat.
+  # Compiles the theme for the Behat jobs WITHOUT depending on build_and_deploy.
+  # Used by the master flow, where Behat runs BEFORE the deploy and so can't
+  # inherit the deploy's theme build.
+  #
+  # Runs on the `pantheon` (build-tools-ci) image — NOT a bare Node image —
+  # because the theme's gulp/sass build commonly @imports SCSS from a CONTRIB
+  # base theme (e.g. web/themes/contrib/<base>/src/scss). Those contrib paths
+  # only exist after `composer install`, so a Node-only image fails with
+  # `ENOENT ... web/themes/contrib/<base>/src/scss`. build-tools-ci ships both
+  # Composer AND Node, exactly like build_and_deploy (which is why its theme
+  # build works). Stages into the layout behat_setup's restore expects
+  # (theme-build/<rel> + theme-path.txt). Self-skips when no tests/behat.
   build_assets:
-    docker:
-    - image: cimg/node:20.11
-    working_directory: ~/project
+    executor: pantheon
     steps:
     - checkout
     - run:
@@ -827,6 +939,23 @@ jobs:
             echo "No tests/behat — nothing to build for Behat."
             circleci-agent step halt
           fi
+    # Shares build_and_deploy's cache key so the Composer download is warm.
+    - restore_cache:
+        keys:
+        - composer-cache-v1-{{ checksum "composer.lock" }}
+        - composer-cache-v1-
+    - run:
+        name: Install Composer dependencies (provides contrib theme deps)
+        command: |
+          if [ -f composer.json ]; then
+            composer install --no-ansi --no-interaction --optimize-autoloader --no-progress
+          else
+            echo "No composer.json — skipping (theme build may fail if it imports contrib)."
+          fi
+    - save_cache:
+        key: composer-cache-v1-{{ checksum "composer.lock" }}
+        paths:
+        - $HOME/.composer/cache
     - run:
         name: Build theme and stage assets for Behat
         command: |
@@ -954,6 +1083,9 @@ workflows:
         filters:
           branches:
             only: master
+        # composer install needs the token (GitHub API rate limits / private VCS).
+        context:
+        - GITHUB_TOKEN
     - behat_setup:
         filters:
           branches:

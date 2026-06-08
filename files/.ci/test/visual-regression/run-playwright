@@ -185,11 +185,16 @@ echo "========================================================="
 # Now run comparison tests against the test environment
 echo "Running tests without UPDATE_MODE to perform comparisons..."
 
-# Run comparison tests (compare test environment screenshots with baseline)
+# Run comparison tests (compare test environment screenshots with baseline).
+# Wrap in set +e: under `set -e` a non-zero exit here would abort the script
+# BEFORE the retry block below ever ran (that block was effectively dead code).
+set +e
 TESTING_URL=$MULTIDEV_SITE_URL npx playwright test
-
-# Store the exit code for retry logic later
 TEST_EXIT_CODE=$?
+set -e
+
+# Default the final result to the comparison result; the retry below may clear it.
+FINAL_EXIT_CODE=$TEST_EXIT_CODE
 
 # Check if there were any failures
 if [ $TEST_EXIT_CODE -ne 0 ]; then
@@ -226,6 +231,9 @@ if [ $TEST_EXIT_CODE -ne 0 ]; then
   RETRY_EXIT_CODE=$?
   set -e
 
+  # The retry is the decisive result: if it clears, the job passes.
+  FINAL_EXIT_CODE=$RETRY_EXIT_CODE
+
   if [ $RETRY_EXIT_CODE -eq 0 ]; then
     echo ""
     echo "=========================================================="
@@ -244,4 +252,31 @@ fi
 echo "Copying test report to artifacts directory..."
 mkdir -p "$ARTIFACTS_DIR/playwright-report"
 cp -r playwright-report/* "$ARTIFACTS_DIR/playwright-report/" || echo "Warning: Failed to copy report"
+
+# ---------------------------------------------------------------------------
+# Failure summary for Slack
+# ---------------------------------------------------------------------------
+# When the suite ends up failing, write a newline-delimited list of the tests
+# that actually failed (parsed from the last run's JSON report). The CircleCI
+# job's on_fail step turns this into a Slack message that names the failures
+# and links to the diff report — far more actionable than "job failed".
+if [ "${FINAL_EXIT_CODE}" -ne 0 ]; then
+  echo "Writing failed-test summary for Slack notification..."
+  node -e '
+    const fs = require("fs");
+    let data;
+    try { data = JSON.parse(fs.readFileSync("test-results/results.json", "utf8")); }
+    catch (e) { process.exit(0); }
+    const failed = new Set();
+    const walk = (s) => {
+      if (!s) return;
+      (s.specs || []).forEach((sp) => { if (sp.ok === false) failed.add(sp.title); });
+      (s.suites || []).forEach(walk);
+    };
+    (data.suites || []).forEach(walk);
+    fs.writeFileSync("test-results/slack-failures.txt", [...failed].join("\n"));
+  ' || echo "Warning: could not parse results.json for Slack summary"
+fi
+
+exit "${FINAL_EXIT_CODE}"
 
