@@ -602,11 +602,14 @@ jobs:
           else
             echo "No composer.json found, skipping composer install."
           fi
-    # Pull the compiled theme assets staged by build_and_deploy. Cheap: the
-    # workspace only carries the built CSS/JS (node_modules excluded), not the
-    # whole tree. On the PR flow build_and_deploy runs first so this restores;
-    # on the master flow Behat runs BEFORE the build, so the workspace is empty
-    # here and the fallback build step below compiles the theme instead.
+    # Pull the compiled theme assets staged upstream. Cheap: the workspace only
+    # carries the built CSS/JS (node_modules excluded), not the whole tree.
+    #   • PR flow:     build_and_deploy runs first and stages them.
+    #   • master flow: the dedicated build_assets job (Node image) runs first and
+    #                  stages them — the behat image has no npm to build itself.
+    # Either way the assets are present in the workspace here and get restored
+    # below. The in-job fallback build is only a last resort if neither upstream
+    # staged anything AND this image happens to have npm.
     - attach_workspace:
         at: /tmp/workspace
     - run:
@@ -626,14 +629,23 @@ jobs:
             cp -a "${SRC}/." "${THEME_REL}/"
             # Flag downstream so the fallback build doesn't rebuild needlessly.
             echo 'export THEME_RESTORED=1' >> "$BASH_ENV"
+            # Confirm compiled output actually landed where the theme's
+            # *.libraries.yml expects it. If this prints the dirs but Behat is
+            # STILL unstyled, the cause is Drupal-side (theme not enabled /
+            # aggregation / wrong docroot) — not the build.
+            echo "Restored theme tree (compiled dirs):"
+            for d in dist build css assets js; do
+              [ -d "${THEME_REL}/${d}" ] && echo "    ${THEME_REL}/${d} ($(du -sh "${THEME_REL}/${d}" 2>/dev/null | cut -f1))"
+            done
           else
             echo "No staged theme assets at ${SRC} — will try a local build next."
           fi
-    # Fallback theme build for when assets weren't carried from build_and_deploy
-    # (the master flow runs Behat first). Best-effort and NON-FATAL: it must
-    # never break the deploy gate, so every failure path just warns and the site
-    # may render unstyled. Picks up THEME_* from the project's env_vars.sh and/or
-    # CircleCI project env, then normalizes the web root.
+    # Last-resort theme build for the unusual case where NOTHING upstream staged
+    # assets (no build_and_deploy on this flow and no build_assets) AND this
+    # image has npm. In the normal master/PR flows the restore above already ran,
+    # so this skips (THEME_RESTORED=1). Best-effort and NON-FATAL: it must never
+    # break the deploy gate, so every failure path just warns and the site may
+    # render unstyled. Picks up THEME_* from env_vars.sh / CircleCI project env.
     - run:
         name: Build theme locally if not carried from build
         command: |
@@ -826,23 +838,43 @@ jobs:
           # env_vars.sh and/or CircleCI project env, then normalize the web root.
           [ -f ./.circleci/env_vars.sh ] && source ./.circleci/env_vars.sh || true
           [ -f ./.ci/scripts/detect_web_root.sh ] && source ./.ci/scripts/detect_web_root.sh || true
-          if [ -z "${THEME_PATH:-}" ] || [ ! -d "${THEME_PATH}" ]; then
-            echo "No usable THEME_PATH — skipping theme build (Behat may be unstyled)."
+          if [ -z "${THEME_PATH:-}" ]; then
+            # Genuinely theme-less project: nothing to build, not an error.
+            echo "THEME_PATH unset — no theme to build for Behat."
             exit 0
           fi
+          if [ ! -d "${THEME_PATH}" ]; then
+            echo "ERROR: THEME_PATH is set ('${THEME_PATH}') but the directory does not exist."
+            echo "  Fix THEME_PATH in .circleci/env_vars.sh (html/ vs web/ web root?)."
+            exit 1
+          fi
           echo "Building theme at ${THEME_PATH}"
-          # Non-fatal: the authoritative theme validation/gating lives in
-          # build_and_deploy. Stage whatever the build produces either way.
+          # FATAL on master: Behat gates the deploy here, so a broken theme must
+          # stop the pipeline rather than quietly test (and screenshot) an
+          # unstyled site. build_and_deploy still re-validates before the deploy.
           ( cd "${THEME_PATH}" \
               && bash -c "${THEME_INSTALL:-npm ci}" \
-              && bash -c "${THEME_BUILD:-npm run build}" ) \
-            || echo "Theme build failed — staging whatever exists (Behat may be unstyled)."
+              && bash -c "${THEME_BUILD:-npm run build}" )
           THEME_REL="${THEME_PATH#./}"
           printf '%s\n' "${THEME_REL}" > /tmp/workspace/theme-path.txt
           mkdir -p "/tmp/workspace/theme-build/${THEME_REL}"
           tar -C "${THEME_PATH}" --exclude=node_modules -cf - . \
             | tar -C "/tmp/workspace/theme-build/${THEME_REL}" -xf -
           echo "Staged compiled theme assets for Behat: ${THEME_REL}"
+          # Prove the build actually produced compiled output — a build that exits
+          # 0 but emits no dist/build/css is exactly how Behat ends up unstyled on
+          # master. FATAL: stop here rather than test an unstyled site.
+          STAGED="/tmp/workspace/theme-build/${THEME_REL}"
+          if find "${STAGED}" -type d \( -name dist -o -name build -o -name css -o -name assets \) -print -quit | grep -q .; then
+            echo "✓ Compiled theme output present:"
+            for d in dist build css assets js; do
+              [ -d "${STAGED}/${d}" ] && echo "    ${THEME_REL}/${d} ($(du -sh "${STAGED}/${d}" 2>/dev/null | cut -f1))"
+            done
+          else
+            echo "ERROR: theme build produced no dist/build/css/assets dir — Behat would be unstyled."
+            echo "  THEME_BUILD='${THEME_BUILD:-npm run build}'  THEME_INSTALL='${THEME_INSTALL:-npm ci}'"
+            exit 1
+          fi
     - persist_to_workspace:
         root: /tmp/workspace
         paths:
