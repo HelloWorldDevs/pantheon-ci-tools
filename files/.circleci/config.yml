@@ -678,11 +678,7 @@ jobs:
             echo "No tests/behat directory in this project — skipping Behat setup."
             circleci-agent step halt
           fi
-    - run:
-        name: Start XVFB
-        command: |
-          export DISPLAY=:99.0
-          Xvfb :99 -screen 0 1280x1024x16 &
+    # (No XVFB here — setup is all CLI work; Chrome/XVFB only run in behat_test.)
     - run:
         name: Setting PHP vars
         command: |
@@ -794,12 +790,11 @@ jobs:
           ./vendor/bin/drush sql-dump --gzip > ./tmp/behat-db-export/drupal-installed.sql.gz
           echo "Database exported to ./tmp/behat-db-export/drupal-installed.sql.gz"
           ls -lh ./tmp/behat-db-export/
-    # Persist the built tree (vendor/, config, etc.) AND the DB dump so the
-    # parallel test containers can attach and run without rebuilding.
+    # Persist the built tree (vendor/, config, etc.) — `.` already includes
+    # ./tmp/behat-db-export, so the DB dump rides along.
     - persist_to_workspace:
         root: .
         paths:
-        - ./tmp/behat-db-export
         - .
 
   # Behat functional tests — RUN phase (parallelized).
@@ -845,6 +840,8 @@ jobs:
           dockerize -wait tcp://localhost:3306 -timeout 4m
           mysql -h 127.0.0.1 -P 3306 -u root -proot -e "CREATE DATABASE circle_test;"
           if [ -f ./tmp/behat-db-export/drupal-installed.sql.gz ]; then
+            # The dump from behat_setup already has Hubspot uninstalled and was
+            # exported post-`drush cr`, so no extra uninstall/cache-clear needed.
             echo "Importing pre-installed database (much faster than fresh install)..."
             gunzip -c ./tmp/behat-db-export/drupal-installed.sql.gz | mysql -h 127.0.0.1 -P 3306 -u root -proot circle_test
             echo "Database imported successfully"
@@ -853,13 +850,10 @@ jobs:
           else
             echo "WARNING: Pre-installed database not found, falling back to fresh install"
             ./.ci/test/behat/install-drupal
+            # Fresh install path only: mirror behat_setup's Hubspot disable.
+            ./vendor/bin/drush pm:uninstall hubspot -y || echo "Hubspot not enabled"
+            ./vendor/bin/drush cr
           fi
-    - run:
-        name: Disable Hubspot module
-        command: ./vendor/bin/drush pm:uninstall hubspot -y || echo "Hubspot not enabled"
-    - run:
-        name: Clear Drupal Cache
-        command: ./vendor/bin/drush cr
     - run:
         name: Create artifact dir
         command: cd /var/www/project && mkdir -p ./tests/behat/results && mkdir -p ./tests/behat/results/junit
