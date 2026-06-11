@@ -417,6 +417,16 @@ jobs:
     - run:
         name: Post Multidev URL to GitHub PR
         command: ./.ci/scripts/post_multidev_url.sh
+    # [notify][jira] Add the multidev URL to the Jira issue sidebar as a
+    # remote link ("deployed to"). Idempotent via globalId — re-deploys
+    # update the link instead of duplicating it. Needs JIRA_BASE_URL /
+    # JIRA_USER / JIRA_TOKEN (same context as the config-sync Jira comment);
+    # the script no-ops cleanly when creds or a real ticket ID are missing.
+    - run:
+        name: Link Multidev URL on Jira issue
+        command: |
+          chmod +x ./.ci/scripts/post_multidev_jira_link.sh
+          ./.ci/scripts/post_multidev_jira_link.sh
 
     # Save environment variables and Git data for the test job
     - run:
@@ -831,6 +841,11 @@ jobs:
           echo "display_errors = On" | sudo tee /usr/local/etc/php/conf.d/display_errors.ini
           echo "display_startup_errors = On" | sudo tee -a /usr/local/etc/php/conf.d/display_errors.ini
           echo "error_reporting = E_ALL" | sudo tee -a /usr/local/etc/php/conf.d/display_errors.ini
+    # Looks redundant with behat_setup's run (the configured tree is carried in
+    # the workspace) but is kept deliberately: workspaces preserve permission
+    # bits, NOT ownership, so the script's chown of web/sites/default/files to
+    # www-data must be re-applied per container (H5P/file-generating scenarios
+    # need Apache writable). Cheap and idempotent; project scripts may vary.
     - run:
         name: Configuring Drupal
         command: ./.ci/test/behat/configure-site
