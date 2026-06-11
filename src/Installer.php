@@ -102,6 +102,12 @@ class Installer
             $sourceBase . '/scripts/post_multidev_url.sh',
             $destBase . '/.ci/scripts/post_multidev_url.sh'
         );
+        // Adds the multidev URL to the Jira issue sidebar as a remote link
+        // (called by build_and_deploy after the deploy).
+        $this->copyFile(
+            $sourceBase . '/scripts/post_multidev_jira_link.sh',
+            $destBase . '/.ci/scripts/post_multidev_jira_link.sh'
+        );
         $this->copyFile(
             $sourceBase . '/scripts/setup_vars.sh',
             $destBase . '/.ci/scripts/setup_vars.sh'
