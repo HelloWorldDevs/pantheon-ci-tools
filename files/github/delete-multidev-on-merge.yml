@@ -27,27 +27,63 @@ jobs:
         run: terminus self:plugin:install pantheon-systems/terminus-secrets-plugin --yes
 
       - name: Delete Multidev Environment
+        shell: bash
         env:
           TERMINUS_ALLOW_UNSUPPORTED_NEWER_PHP: 1
           # TERMINUS_TOKEN is used in the auth step above
           # IMPORTANT: Ensure PANTHEON_SITE is set in GitHub repo variables
           PANTHEON_SITE: "${{ vars.PANTHEON_SITE || 'your-site-name' }}"
-          # Get branch name from PR event
+          # Get branch name + PR number from the PR event.
           BRANCH: "${{ github.event.pull_request.head.ref || github.head_ref || github.ref_name }}"
+          PR_NUMBER: "${{ github.event.pull_request.number || github.event.number }}"
         run: |
-          echo "Original branch name: $BRANCH"
-          # Clean up branch name to be a valid multidev name (lowercase, alphanumeric, hyphens, max 11 chars, no leading/trailing hyphens)
-          CLEAN_BRANCH=$(echo "$BRANCH" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/^-*//;s/-*$//' | cut -c 1-11)
-          echo "Cleaned branch name for multidev: ${CLEAN_BRANCH}"
-          echo "Target Pantheon site: ${PANTHEON_SITE}"
+          set -euo pipefail
+          echo "Branch: '${BRANCH}'  PR: '${PR_NUMBER:-<none>}'  Site: '${PANTHEON_SITE}'"
 
-          # Check if the multidev environment exists
-          if terminus env:list "${PANTHEON_SITE}" --field=id | grep -qw "${CLEAN_BRANCH}"; then
-            echo "Multidev environment '${CLEAN_BRANCH}' found for site '${PANTHEON_SITE}'. Deleting..."
-            terminus env:delete "${PANTHEON_SITE}.${CLEAN_BRANCH}" --delete-branch --yes --force
-            echo "Deletion command executed for multidev '${CLEAN_BRANCH}'."
-          else
-            echo "No multidev environment named '${CLEAN_BRANCH}' found for site '${PANTHEON_SITE}'. Nothing to delete."
+          # Normalize a string into a valid Pantheon env name the SAME way the
+          # deploy does: lowercase, non-alnum -> '-', trim '-', max 11 chars.
+          normalize() {
+            echo "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/^-*//;s/-*$//' | cut -c 1-11
+          }
+
+          # Build candidate env names in the SAME priority order that
+          # setup_vars.sh / dev-multidev.sh use when NAMING the multidev:
+          #   1) Jira ticket id from the branch (e.g. ADS-428 -> ads-428)
+          #   2) PR number (pr-<number>)
+          #   3) cleaned branch name (last-resort)
+          CANDIDATES=()
+          if echo "$BRANCH" | grep -qE '[A-Za-z]{1,10}-[0-9]+'; then
+            TICKET=$(echo "$BRANCH" | grep -oE '[A-Za-z]{1,10}-[0-9]+' | head -1)
+            CANDIDATES+=("$(normalize "$TICKET")")
+          fi
+          if [ -n "${PR_NUMBER:-}" ] && [ "${PR_NUMBER}" != "0" ]; then
+            CANDIDATES+=("$(normalize "pr-${PR_NUMBER}")")
+          fi
+          CANDIDATES+=("$(normalize "$BRANCH")")
+
+          echo "Candidate multidev names (priority order): ${CANDIDATES[*]}"
+
+          # Snapshot existing envs once, then delete the FIRST candidate that
+          # exists (skipping empties/duplicates).
+          ENV_LIST=$(terminus env:list "${PANTHEON_SITE}" --field=id)
+          DELETED=""
+          SEEN=" "
+          for ENV in "${CANDIDATES[@]}"; do
+            [ -n "$ENV" ] || continue
+            case "$SEEN" in *" $ENV "*) continue ;; esac
+            SEEN="${SEEN}${ENV} "
+            if echo "$ENV_LIST" | grep -qw "$ENV"; then
+              echo "Found multidev '${ENV}' for '${PANTHEON_SITE}' — deleting..."
+              terminus env:delete "${PANTHEON_SITE}.${ENV}" --delete-branch --yes --force
+              echo "Deleted multidev '${ENV}'."
+              DELETED="$ENV"
+              break
+            fi
+            echo "No multidev named '${ENV}'."
+          done
+
+          if [ -z "$DELETED" ]; then
+            echo "No matching multidev found for any candidate. Nothing to delete."
           fi
 
       - name: Post cleanup comment
