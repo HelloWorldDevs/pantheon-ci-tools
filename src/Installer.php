@@ -136,11 +136,15 @@ class Installer
         );
         // NOTE: Behat support is config-only. The behat_setup/behat_test jobs in
         // config.yml self-skip (circleci-agent step halt) unless the project
-        // ships a tests/behat directory, and they call PROJECT-SUPPLIED scripts
-        // under .ci/test/behat/ (configure-site, install-drupal, chrome.sh,
-        // run-tests-circle). Those are inherently project-specific (Drupal
-        // install steps, theme build, enabled modules), so the tool does not
-        // ship generic copies — projects that want Behat provide their own.
+        // ships a tests/behat directory. Behat now runs against the DEPLOYED
+        // environment (multidev on PRs, dev on master) — not a local Drupal
+        // install — so the only PROJECT-SUPPLIED script the jobs call is the
+        // parallelization runner .ci/test/behat/run-tests-circle, alongside the
+        // project's tests/behat features + behat.yml. That runner is
+        // project-specific (suite layout, profiles), so the tool does not ship a
+        // generic copy — projects that want Behat provide their own. The old
+        // local-install helpers (configure-site, install-drupal, chrome.sh,
+        // import-database, pull-database) are no longer used.
 
         // Copy test files
         $this->copyFile(

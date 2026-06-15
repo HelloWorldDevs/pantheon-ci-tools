@@ -11,9 +11,18 @@ executors:
     - image: quay.io/pantheon-public/build-tools-ci:8.x-php8.3
     working_directory: ~/project
 
+  # Playwright VRT executor. We deliberately do NOT use Microsoft's
+  # mcr.microsoft.com/playwright image: MCR aggressively rate-limits anonymous
+  # pulls (toomanyrequests / unauthorized), which intermittently fails the job on
+  # fresh CI hosts with no image cache. Instead we run on CircleCI's own
+  # cimg/node (served from CircleCI's mirror, so not subject to those limits) and
+  # let `npx playwright install --with-deps chromium` pull the matching browser +
+  # OS libraries at runtime. Bonus: the browser version always matches the
+  # @playwright/test version resolved from package-lock — no manual image-tag
+  # sync. Trade-off: ~1–2 min added per run for the apt/browser install.
   playwright:
     docker:
-    - image: mcr.microsoft.com/playwright:v1.52.0-noble
+    - image: cimg/node:lts
     working_directory: ~/project
 
   # Behat executor for running the suite against a DEPLOYED Pantheon env
@@ -448,27 +457,10 @@ jobs:
             echo "export DEV_SITE_URL='${DEV_SITE_URL}'"
           } > /tmp/workspace/env_vars.sh
 
-          # Carry the COMPILED theme assets to the Behat jobs. Those jobs do a
-          # fresh checkout + composer install and do NOT build the theme, so the
-          # gitignored built CSS/JS (dist/, css/, js/) produced above is absent
-          # there and the site renders unstyled — which breaks Behat steps that
-          # rely on CSS-driven visibility. Stage the theme dir (minus
-          # node_modules) and record its project-relative path so Behat can
-          # restore it to the same location (THEME_PATH isn't recomputed there).
-          # Always create the targets so persist_to_workspace never errors on a
-          # missing path, even when THEME_PATH is unset.
-          mkdir -p /tmp/workspace/theme-build
-          : > /tmp/workspace/theme-path.txt
-          if [ -n "${THEME_PATH:-}" ] && [ -d "${THEME_PATH}" ]; then
-            THEME_REL="${THEME_PATH#./}"
-            printf '%s\n' "${THEME_REL}" > /tmp/workspace/theme-path.txt
-            mkdir -p "/tmp/workspace/theme-build/${THEME_REL}"
-            tar -C "${THEME_PATH}" --exclude=node_modules -cf - . \
-              | tar -C "/tmp/workspace/theme-build/${THEME_REL}" -xf -
-            echo "Staged compiled theme assets for Behat: ${THEME_REL}"
-          else
-            echo "THEME_PATH unset or missing — no theme assets staged for Behat."
-          fi
+          # NOTE: We no longer stage compiled theme assets here. Behat now runs
+          # against the DEPLOYED env (multidev/dev), which already serves the
+          # theme that was built and pushed to Pantheon above — there is no local
+          # site to style, so the workers don't need the compiled CSS/JS.
 
           # Debug: Show what we're saving
           echo "=== Workspace Contents ==="
@@ -485,10 +477,6 @@ jobs:
         - .circleci/
         - .git/
         - test_routes.json
-        # Compiled theme assets + their project-relative path, consumed by the
-        # Behat jobs (which don't build the theme themselves).
-        - theme-build/
-        - theme-path.txt
 
     # [notify][jira] Record this deploy in the Jira issue's deployment panel.
     # `environment` is the deployed URL (env vars expand at runtime); each
@@ -528,10 +516,11 @@ jobs:
     # [setup] Set up Docker for running visual tests
     - setup_remote_docker:
         docker_layer_caching: true
-    # [setup][notify] Install jq for Jira notifications
+    # [setup][notify] Install jq for Jira notifications. cimg/node runs as the
+    # non-root `circleci` user (passwordless sudo), so apt needs sudo here.
     - run:
         name: Install jq
-        command: apt-get update && apt-get install -y jq
+        command: sudo apt-get update && sudo apt-get install -y jq
     # [vars] Load environment variables from the workspace
     - run:
         name: Load environment variables
@@ -571,10 +560,12 @@ jobs:
           echo "Installing npm dependencies..."
           # Use npm ci for cleaner and faster installs in CI
           npm ci
-          echo "Installing Playwright browsers..."
-          # The base image should have system dependencies, so playwright install should suffice
-          # If issues persist, can switch to 'npx playwright install --with-deps'
-          npx playwright install
+          echo "Installing Playwright browser + OS deps (chromium only)..."
+          # --with-deps installs the OS libraries the browser needs (via sudo
+          # apt) since cimg/node is a stock Node image, not Microsoft's
+          # preloaded Playwright image. Only chromium is installed because the
+          # suite defines a single chromium project (playwright.config.js).
+          npx playwright install --with-deps chromium
           echo "Running Playwright tests..."
           # Per-workflow comparison targets (PR: dev↔multidev, master: prod↔dev).
           # Exported here so run-playwright picks them up; env vars in the param
@@ -713,7 +704,12 @@ jobs:
         type: string
         default: "${MULTIDEV_SITE_URL}"
     steps:
-    # Pull the Composer-built tree (vendor/, tests/, .ci/) from behat_setup.
+    # Get the project source straight from git (guarantees the project-supplied
+    # behat scripts under .ci/test/behat/ — e.g. run-tests-circle — and the
+    # tests/ tree are present regardless of workspace layering).
+    - checkout
+    # Overlay the Composer-built artifacts (vendor/, composer-installed web/*)
+    # from behat_setup so the workers don't each re-run Composer.
     - attach_workspace:
         at: .
     - run:
@@ -723,6 +719,24 @@ jobs:
             echo "No tests/behat directory in this project — skipping Behat."
             circleci-agent step halt
           fi
+    # Diagnostic: confirm the project runner (from checkout) and the Composer
+    # build (from the workspace) are both present before we use them.
+    - run:
+        name: Verify Behat runner and vendor are present
+        command: |
+          ok=1
+          if [ ! -f ./.ci/test/behat/run-tests-circle ]; then
+            echo "ERROR: ./.ci/test/behat/run-tests-circle is missing after checkout."
+            ls -la ./.ci/test/behat 2>/dev/null || echo "  (.ci/test/behat does not exist)"
+            ok=0
+          fi
+          if [ ! -x ./vendor/bin/behat ] && [ ! -f ./vendor/bin/behat ]; then
+            echo "ERROR: ./vendor/bin/behat is missing — behat_setup's vendor/ did not arrive via the workspace."
+            ok=0
+          fi
+          [ "$ok" = "1" ] || exit 1
+          chmod +x ./.ci/test/behat/run-tests-circle ./.ci/test/behat/*.sh 2>/dev/null || true
+          echo "Found run-tests-circle and vendor/bin/behat."
     # Authenticate Terminus and recompute the Pantheon site/env + URLs (the same
     # deterministic values build_and_deploy used). Remote drush — used by the
     # Drupal @api driver to create fixtures on the deployed env — needs this.
@@ -790,7 +804,10 @@ jobs:
                 }
               }
             }')"
-          ./.ci/test/behat/run-tests-circle
+          # Invoked via `bash` explicitly: the project runner uses bash arrays
+          # and ships without a shebang, so this avoids exec-bit/interpreter
+          # surprises across images.
+          bash ./.ci/test/behat/run-tests-circle
     # store_artifacts/store_test_results run even after a failed step by default,
     # so results/logs land on failure too — no `when` needed.
     - store_artifacts:
