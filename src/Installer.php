@@ -134,17 +134,27 @@ class Installer
             $sourceBase . '/scripts/check-multidev-capacity.sh',
             $destBase . '/.ci/scripts/check-multidev-capacity.sh'
         );
-        // NOTE: Behat support is config-only. The behat_setup/behat_test jobs in
+        // Rewrites the project's `circleci` Behat profile at CI runtime to point
+        // at the DEPLOYED env: DMore Chrome (CDP) session, base_url = deployed
+        // URL, api_driver = remote drush. Required because Behat config merge
+        // precedence makes BEHAT_PARAMS retargeting ineffective, and projects
+        // otherwise drive browsers/fixtures in ways that can't reach a multidev.
+        $this->copyFile(
+            $sourceBase . '/scripts/standardize-behat-ci-profile.php',
+            $destBase . '/.ci/scripts/standardize-behat-ci-profile.php'
+        );
+        // NOTE: Behat support is config-only. The test_setup/behat_test jobs in
         // config.yml self-skip (circleci-agent step halt) unless the project
-        // ships a tests/behat directory. Behat now runs against the DEPLOYED
+        // ships a tests/behat directory. Behat runs against the DEPLOYED
         // environment (multidev on PRs, dev on master) — not a local Drupal
-        // install — so the only PROJECT-SUPPLIED script the jobs call is the
-        // parallelization runner .ci/test/behat/run-tests-circle, alongside the
-        // project's tests/behat features + behat.yml. That runner is
-        // project-specific (suite layout, profiles), so the tool does not ship a
-        // generic copy — projects that want Behat provide their own. The old
-        // local-install helpers (configure-site, install-drupal, chrome.sh,
-        // import-database, pull-database) are no longer used.
+        // install. The jobs call the project's parallelization runner
+        // .ci/test/behat/run-tests (or run-tests-circle), alongside the project's
+        // tests/behat features + behat.yml. Before running, the jobs invoke the
+        // standardize-behat-ci-profile.php script shipped above to normalize the
+        // project's `circleci` profile for the deployed target. The DMore Chrome
+        // extension + driver are pulled in as non-dev deps of this package so
+        // they're always present. The old local-install helpers (configure-site,
+        // install-drupal, chrome.sh, import-database, pull-database) are unused.
 
         // Copy test files
         $this->copyFile(

@@ -696,7 +696,7 @@ jobs:
     # containers would have them race/clobber each other in that one DB (the old
     # 12-way split was only safe because each node had its own local install +
     # DB). Run serially against the shared env instead.
-    parallelism: 1
+    parallelism: 12
     parameters:
       # Deployed environment the suite runs against. Env vars (e.g.
       # ${MULTIDEV_SITE_URL}/${DEV_SITE_URL}) expand at runtime from $BASH_ENV.
@@ -789,31 +789,38 @@ jobs:
     - run:
         name: Create results dir
         command: mkdir -p ./tests/behat/results/junit
-    # Run the suite against the deployed env. BEHAT_PARAMS is merged over the
-    # project's behat.yml profile to (a) retarget Mink at the deployed URL,
-    # (b) point the Chrome driver at the service container, and (c) route @api
-    # fixtures through remote drush on the Pantheon env.
+    # Standardize the project's `circleci` Behat profile for the DEPLOYED env.
+    #
+    # We can't retarget via BEHAT_PARAMS: Behat merges configs as
+    # [BEHAT_PARAMS, default, named-profile] with the LATER source winning, so a
+    # project's own profile overrides anything BEHAT_PARAMS injects (this is why
+    # earlier URL/driver overrides silently "did nothing"). Projects also differ
+    # in how they drive a browser (selenium2 vs DMore chrome) and create @api
+    # fixtures (in-process `drupal` vs remote `drush`) — none of which works
+    # against a remote multidev on a box with no local Drupal/Selenium.
+    #
+    # So we rewrite the `circleci` profile the runner selects (`--profile
+    # circleci`) into a known-good shape: DMore Chrome (CDP) session pointed at
+    # the headless-chrome service, base_url = the deployed URL, and api_driver =
+    # remote drush with the Pantheon alias. The checkout is ephemeral, so editing
+    # it in place is safe. Suites/filters and contexts are preserved (Behat
+    # merges `circleci` over `default`).
+    - run:
+        name: Standardize Behat CI profile for the deployed env
+        command: |
+          set -eo pipefail
+          TARGET_URL="<< parameters.behat_target_url >>"
+          ALIAS="@pantheon.${TERMINUS_SITE}.${TERMINUS_ENV}"
+          echo "Retargeting Behat at: ${TARGET_URL} (drush alias ${ALIAS})"
+          php ./.ci/scripts/standardize-behat-ci-profile.php \
+            ./tests/behat/behat.yml "${TARGET_URL}" "${ALIAS}" "http://localhost:9222"
+    # Run the suite against the deployed env via the project's runner (which
+    # selects --profile circleci — now standardized above).
     - run:
         name: Run Behat against the deployed environment
         command: |
           set -eo pipefail
-          TARGET_URL="<< parameters.behat_target_url >>"
-          echo "Running Behat against: ${TARGET_URL}"
-          export BEHAT_PARAMS="$(jq -n \
-            --arg url "$TARGET_URL" \
-            --arg alias "@pantheon.${TERMINUS_SITE}.${TERMINUS_ENV}" \
-            '{
-              extensions: {
-                "Drupal\\MinkExtension": {
-                  base_url: $url,
-                  sessions: { default: { chrome: { api_url: "http://localhost:9222" } } }
-                },
-                "Drupal\\DrupalExtension": {
-                  api_driver: "drush",
-                  drush: { alias: $alias }
-                }
-              }
-            }')"
+          echo "Running Behat against: << parameters.behat_target_url >>"
           # Invoked via `bash` explicitly: some project runners use bash arrays
           # and/or ship without a shebang, so this avoids exec-bit/interpreter
           # surprises across images. BEHAT_RUNNER was resolved (run-tests vs
