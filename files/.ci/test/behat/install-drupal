@@ -1,0 +1,60 @@
+#!/bin/bash
+
+# Installs Drupal for Behat tests against a fresh (content-less) database.
+#
+# Distributed by helloworlddevs/pantheon-ci-tools. The behat_setup/behat_test
+# jobs in .circleci/config.yml call this script; project-specific work (theme
+# build, file ownership, etc.) belongs in the project's configure-site, not here.
+#
+# Auto-detects the install profile from the committed config and, when config is
+# present, installs straight from it. This is essential for sites with a CUSTOM
+# install profile whose modules/themes are nested under profiles/<profile>/:
+# Drupal only discovers those once that profile is the installed one. Installing
+# a generic profile (standard/minimal) and then importing config therefore fails
+# every time with "Cannot change the install profile ..." and "Unable to install
+# the <module> since it does not exist", and a retry loop around it spins forever.
+#
+# `site:install --existing-config` installs the profile named in
+# core.extension.yml, reuses the site UUID from system.site.yml, and imports all
+# config as part of the install — one pass, no profile change, no import loop.
+
+set -eo pipefail
+
+DRUSH="./vendor/bin/drush"
+
+# Config sync directory (env override, else the conventional location).
+SYNC_DIR="${CONFIG_SYNC_DIR:-config/sync}"
+CORE_EXT="${SYNC_DIR}/core.extension.yml"
+
+# Detect the install profile declared in the committed config, if any.
+PROFILE=""
+if [ -f "$CORE_EXT" ]; then
+  PROFILE="$(awk -F':[[:space:]]*' '/^profile:/ {gsub(/["'"'"'[:space:]]/,"",$2); print $2; exit}' "$CORE_EXT")"
+fi
+
+if [ -f "$CORE_EXT" ]; then
+  # Install from committed config. Pass the detected profile explicitly when we
+  # found one (it always matches the profile in config, so it's safe and makes
+  # the chosen profile visible in the logs); otherwise let --existing-config read
+  # it from core.extension.yml.
+  if [ -n "$PROFILE" ]; then
+    echo "Installing Drupal from existing config (profile: ${PROFILE})..."
+    $DRUSH -y site:install "$PROFILE" --existing-config
+  else
+    echo "Installing Drupal from existing config..."
+    $DRUSH -y site:install --existing-config
+  fi
+else
+  # No committed config to install from — plain install of the default profile.
+  echo "No ${CORE_EXT} found — installing default profile..."
+  $DRUSH -y site:install
+fi
+
+echo "Running DB Updates"
+$DRUSH updb -y;
+
+echo "Clearing caches..."
+$DRUSH cr;
+
+# Get status for debugging purposes.
+$DRUSH status;
