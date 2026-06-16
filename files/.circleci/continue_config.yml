@@ -1,0 +1,1272 @@
+version: 2.1
+
+# This is the CONTINUATION config — it is not run directly. The setup config
+# (.circleci/config.yml, setup: true) detects whether the project ships Behat
+# tests and continues here, passing behat_parallelism. See that file for why.
+parameters:
+  behat_parallelism:
+    type: integer
+    # Default 12 so a direct/manual run still shards. The setup config overrides
+    # this to 1 when the project has no tests/behat, so behat_test provisions a
+    # single box that halts instead of 12.
+    default: 12
+
+orbs:
+  jira: circleci/jira@2.2.0
+  gh: circleci/github-cli@2.7.0
+  slack: circleci/slack@5.1.1
+
+executors:
+  pantheon:
+    docker:
+    - image: quay.io/pantheon-public/build-tools-ci:8.x-php8.3
+    working_directory: ~/project
+
+  # Playwright VRT executor. Uses the official Playwright image (browsers + OS
+  # deps preinstalled) mirrored into our GHCR org. We mirror rather than pull
+  # mcr.microsoft.com/playwright directly because MCR aggressively rate-limits
+  # anonymous pulls (toomanyrequests / unauthorized) on shared CI egress IPs, and
+  # MCR has no authenticated pull path to raise that limit. GHCR isn't subject to
+  # those limits. The tag MUST match the @playwright/test version pinned in
+  # .ci/test/visual-regression/package-lock.json (currently 1.52.0); if you bump
+  # Playwright, re-mirror the matching tag:
+  #   docker buildx imagetools create \
+  #     --tag ghcr.io/helloworlddevs/playwright:vX.Y.Z-noble \
+  #     mcr.microsoft.com/playwright:vX.Y.Z-noble
+  playwright:
+    docker:
+    - image: ghcr.io/helloworlddevs/playwright:v1.52.0-noble
+    working_directory: ~/project
+
+  # Behat executor: a Drupal/PHP testing image PLUS a MariaDB service container.
+  # The MariaDB image is what makes `dockerize -wait tcp://localhost:3306` work —
+  # it's the database listening on localhost:3306. The default `pantheon`
+  # executor is a single image with NO db service, which is why dockerize there
+  # hangs the full timeout and fails.
+  #
+  # The testing image ships dockerize, apache, drush, composer, chromium and
+  # chromedriver. It MUST run PHP >= 8.2: projects pull symfony/config v7 and
+  # behat 3.31, which use 8.2-only syntax (DNF types) and fail to even parse on
+  # PHP 8.1. v2 bumps the base from drupal:7.101-php8.1 to
+  # drupal:10-php8.2-apache-bullseye (see ~/Sites/atdove/Dockerfile).
+  behat:
+    docker:
+    - image: helloworlddevs/atdove-testing-image:v2
+    - image: cimg/mariadb:10.6
+      environment:
+        MYSQL_ROOT_HOST: "%"
+        MYSQL_ROOT_PASSWORD: root
+        MYSQL_DATABASE: drupal
+        MYSQL_PASSWORD: root
+        MYSQL_USER: user
+        DRUPAL_DB_HOST: 127.0.0.1
+    working_directory: /var/www/project
+    environment:
+      TZ: "/usr/share/zoneinfo/America/Los_Angeles"
+      ADMIN_USERNAME: admin
+
+defaults: &defaults
+  executor: pantheon
+  working_directory: ~/project
+  environment:
+    TZ: "/usr/share/zoneinfo/America/Los_Angeles"
+    NOTIFY: 'scripts/github/add-commit-comment {project} {sha} "Created multidev environment [{site}#{env}]({site-url}). Login with creds: username: admin, password: wh0C4r3s?" {site-url}'
+    ADMIN_USERNAME: admin
+
+jobs:
+  # [job] Pre-flight guard: abort the pipeline early if Pantheon's multidev
+  # cap is reached, instead of failing deep inside the deploy after a full
+  # build. No-ops on the default branch (deploys to dev) and when no
+  # ticket/PR maps to a multidev. Tunables: MAX_MULTIDEVS, DEFAULT_BRANCH.
+  check_multidev_capacity:
+    <<: *defaults
+    resource_class: small
+    steps:
+    - checkout
+    - run:
+        name: Abort if Pantheon multidev capacity is reached
+        command: |
+          chmod +x ./.ci/scripts/check-multidev-capacity.sh
+          ./.ci/scripts/check-multidev-capacity.sh
+
+  # Main build and deploy job
+  build_and_deploy:
+    <<: *defaults
+    resource_class: small
+    parameters:
+      # Deployment target recorded in the Jira issue's deployment panel. A URL
+      # is fine; env vars (e.g. ${MULTIDEV_SITE_URL}/${DEV_SITE_URL}) expand at
+      # runtime since build_and_deploy exports them to $BASH_ENV.
+      jira_environment:
+        type: string
+        default: "${MULTIDEV_SITE_URL}"
+      # Atlassian's deployment category is a FIXED enum — "multidev"/"dev" are
+      # NOT accepted. We map: multidev → development, dev → staging.
+      jira_environment_type:
+        type: enum
+        enum: ["production", "staging", "testing", "development", "unmapped"]
+        default: "development"
+    steps:
+    # [setup] Checkout code and set up Docker
+    - checkout
+    - setup_remote_docker:
+        docker_layer_caching: true
+    # [vars][wet] Calculate environment URLs and variables
+    - run:
+        name: Setup environment and calculate URLs
+        command: |
+          # Run Pantheon environment setup
+          /build-tools-ci/scripts/set-environment
+
+          # Source the script to preserve environment variables
+          source ./.ci/scripts/setup_vars.sh
+
+          # Verify the variables were set correctly
+          echo "Verification: Using TERMINUS_ENV: $TERMINUS_ENV"
+          echo "Verification: Using MULTIDEV_SITE_URL: $MULTIDEV_SITE_URL"
+          echo "Verification: Using DEV_SITE_URL: $DEV_SITE_URL"
+
+          # Create the workspace directory if it doesn't exist
+          mkdir -p /tmp/workspace
+
+          # Write all variables to a single file for workspace and subsequent steps
+          {
+            # CircleCI variables
+            echo "export CI_BUILD_URL='${CIRCLE_BUILD_URL}'"
+            echo "export CI_NODE_INDEX='${CIRCLE_NODE_INDEX}'"
+            echo "export CI_REPOSITORY_URL='${CIRCLE_REPOSITORY_URL}'"
+            echo "export ARTIFACTS_DIR_URL='${CIRCLE_BUILD_URL}/artifacts/${CIRCLE_NODE_INDEX}/artifacts'"
+
+            # Pantheon and site variables
+            echo "export TERMINUS_SITE='$TERMINUS_SITE'"
+            echo "export TERMINUS_ENV='$TERMINUS_ENV'"
+            echo "export JIRA_TICKET_ID='$JIRA_TICKET_ID'"
+            echo "export MULTIDEV_SITE_URL='$MULTIDEV_SITE_URL'"
+            echo "export DEV_SITE_URL='$DEV_SITE_URL'"
+            echo "export LIVE_SITE_URL='$LIVE_SITE_URL'"
+
+            # Web-root + corrected theme path (computed by setup_vars.sh).
+            # Exporting both means every later step (Load env, Verify,
+            # Install, Build, Pantheon push, visual-regression job, etc.)
+            # gets the same canonical values without re-detecting.
+            echo "export WEB_ROOT='$WEB_ROOT'"
+            echo "export THEME_PATH='$THEME_PATH'"
+          } > /tmp/workspace/env_vars.sh
+
+          # Also add to BASH_ENV for current job steps
+          cat /tmp/workspace/env_vars.sh >> $BASH_ENV
+          source $BASH_ENV
+
+          echo "Saved environment variables to workspace:"
+          cat /tmp/workspace/env_vars.sh
+    # [build] Handle Composer dependencies
+    - run:
+        name: Clear Composer Cache
+        command: |
+          if [ -f "composer.json" ]; then
+            composer clear-cache
+          fi
+    - run:
+        name: Installing composer dependencies
+        command: |
+          if [ -f "composer.json" ]; then
+            composer install --no-ansi --no-interaction --optimize-autoloader --no-progress
+          else
+            echo "No composer.json found, skipping composer install."
+          fi
+    # [cache] Save Composer cache
+    - save_cache:
+        key: composer-cache-v1-{{ checksum "composer.lock" }}
+        paths:
+        - $HOME/.composer/cache
+
+    # Load environment variables from external file
+    - run:
+        name: Load environment variables
+        command: |
+          # Make the env vars script executable
+          chmod +x ./.circleci/env_vars.sh
+          # Source it into BASH_ENV for all steps
+          echo 'source ./.circleci/env_vars.sh' >> $BASH_ENV
+          # Re-run web-root detection AFTER env_vars.sh on every step. The
+          # project's env_vars.sh may unconditionally `export THEME_PATH=...`
+          # which would otherwise overwrite the corrected value from
+          # setup_vars.sh. detect_web_root.sh is idempotent.
+          echo 'source ./.ci/scripts/detect_web_root.sh' >> $BASH_ENV
+          source $BASH_ENV
+
+    # Verify required environment variables are set.
+    # THEME_PATH normalization runs automatically via $BASH_ENV (see
+    # setup_vars.sh + detect_web_root.sh); this step only sanity-checks the
+    # final values and hard-fails before we try to `cd` into something
+    # that doesn't exist.
+    - run:
+        name: Verify required theme variables are set
+        command: |
+          echo "WEB_ROOT=${WEB_ROOT:-<unset>}"
+          echo "THEME_PATH=${THEME_PATH:-<unset>}"
+
+          if [ -z "${THEME_PATH:-}" ]; then
+            echo "ERROR: THEME_PATH environment variable is not set!"
+            echo "Please set THEME_PATH in the CircleCI project settings or in .circleci/env_vars.sh"
+            exit 1
+          fi
+
+          if [ ! -d "${THEME_PATH}" ]; then
+            echo "ERROR: THEME_PATH does not exist on disk: ${THEME_PATH}"
+            echo "Detected WEB_ROOT: ${WEB_ROOT:-<none>}"
+            echo "Project layout (top-level):"
+            ls -1 | sed 's/^/  /'
+            exit 1
+          fi
+
+          if [ -z "${THEME_BUILD}" ]; then
+            echo "ERROR: THEME_BUILD environment variable is not set!"
+            echo "Please set THEME_BUILD in the CircleCI project settings or in .circleci/env_vars.sh"
+            exit 1
+          fi
+
+          # Catch the common copy-paste bug where THEME_BUILD is set to
+          # `npm install` (or duplicates THEME_INSTALL). The build "succeeds"
+          # but produces no compiled assets, and the deploy ships an unstyled
+          # site. Fail loudly here so the misconfiguration is obvious.
+          if [ "${THEME_BUILD}" = "${THEME_INSTALL}" ] || \
+             printf '%s' "${THEME_BUILD}" | grep -qE '^[[:space:]]*npm[[:space:]]+install([[:space:]]|$)'; then
+            echo "ERROR: THEME_BUILD looks wrong — it's '${THEME_BUILD}'."
+            echo "  THEME_BUILD should compile the theme (e.g. 'npm run build', 'gulp build')."
+            echo "  THEME_INSTALL is what installs dependencies (e.g. 'npm install')."
+            echo "  Fix THEME_BUILD in .circleci/env_vars.sh."
+            exit 1
+          fi
+
+          # Validate every `npm run <script>` referenced anywhere in
+          # THEME_BUILD actually exists in the theme's package.json. Catches
+          # typos AND missing scripts in chained commands like
+          # `npm ci && npm run build`. Scans the whole string, not just the
+          # leading command, so a typo at the end still fails the build.
+          if [ -f "${THEME_PATH}/package.json" ]; then
+            npm_scripts="$(printf '%s' "${THEME_BUILD}" | grep -oE 'npm[[:space:]]+run[[:space:]]+[A-Za-z0-9_:.-]+' | awk '{print $NF}' | sort -u || true)"
+            for s in ${npm_scripts}; do
+              if ! grep -qE "\"${s}\"[[:space:]]*:" "${THEME_PATH}/package.json"; then
+                echo "ERROR: THEME_BUILD references 'npm run ${s}' but no '${s}' script is defined in ${THEME_PATH}/package.json"
+                echo "Available scripts:"
+                grep -E '^\s+"[^"]+"\s*:\s*".*"' "${THEME_PATH}/package.json" | sed 's/^/  /' || true
+                exit 1
+              fi
+            done
+          fi
+
+          echo "Required theme variables verified: THEME_PATH=${THEME_PATH}, THEME_INSTALL=${THEME_INSTALL}, THEME_BUILD=${THEME_BUILD}"
+
+    # Reuse the theme already compiled by build_assets for THIS commit (master
+    # flow) instead of rebuilding. Selective cache restore keyed on the commit
+    # SHA — cheap, and avoids attaching behat_setup's heavy full-tree workspace.
+    # No hit (PR flow, where build_and_deploy runs first) → the step below falls
+    # through to a normal build.
+    - restore_cache:
+        keys:
+        - theme-compiled-v1-{{ .Revision }}
+    # NOTE: THEME_INSTALL/THEME_BUILD are invoked via `bash -c` so shell
+    # operators inside the value (e.g. `npm ci && npm run build`) are parsed as
+    # operators, not passed as literal args. With bare `${THEME_INSTALL}`
+    # expansion they'd word-split and npm would silently receive `&&` as a
+    # positional argument and skip everything after it.
+    - run:
+        name: Build theme (reuse build_assets' compiled output if cached)
+        command: |
+          set -eo pipefail
+          THEME_REL="$(cat /tmp/workspace/theme-path.txt 2>/dev/null || true)"
+          STAGED="/tmp/workspace/theme-build/${THEME_REL}"
+          if [ -n "${THEME_REL}" ] && [ -d "${STAGED}" ]; then
+            echo "Reusing theme compiled by build_assets for this commit: ${THEME_REL}"
+            mkdir -p "${THEME_PATH}"
+            cp -a "${STAGED}/." "${THEME_PATH}/"
+          else
+            echo "No cached theme build for this commit — building now."
+            cd "${THEME_PATH}"
+            bash -c "${THEME_INSTALL}"
+            bash -c "${THEME_BUILD}"
+          fi
+
+    # Diagnostic: prove the build produced files before we try to ship them.
+    # If styles ever go missing from a deploy, this output is the first
+    # place to look — empty/missing artifacts here mean the build dropped
+    # them; full output here but missing on prod means the deploy step
+    # excluded them (see `git status` diagnostics below).
+    - run:
+        name: Theme build sanity check (post-build artifacts)
+        command: |
+          echo "Top-level contents of ${THEME_PATH}:"
+          ls -la "${THEME_PATH}" | sed 's/^/  /'
+          # Buffer find results to a file + truncate via awk to avoid
+          # SIGPIPE/141 with high-volume output under `set -eo pipefail`.
+          for d in dist build assets css js public; do
+            if [ -d "${THEME_PATH}/${d}" ]; then
+              echo
+              echo "${THEME_PATH}/${d} ($(du -sh "${THEME_PATH}/${d}" | cut -f1)):"
+              FIND_TMP="$(mktemp)"
+              find "${THEME_PATH}/${d}" -maxdepth 3 -type f \( -name '*.css' -o -name '*.js' -o -name '*.map' \) > "${FIND_TMP}" 2>/dev/null || true
+              awk 'NR<=40 {print "  " $0} END {if (NR>40) print "  ... (" NR-40 " more)"}' "${FIND_TMP}"
+              rm -f "${FIND_TMP}"
+            fi
+          done
+
+    # NOTE: don't hardcode a web-root path (e.g. web/themes/) here — projects
+    # vary (web/ vs html/, per composer drupal-scaffold web-root). Built theme
+    # assets are deployed to Pantheon via build:env:push, and the visual-
+    # regression job tests the live multidev URL, so it doesn't need the theme
+    # source in the workspace. Persist only what later jobs actually consume.
+    - persist_to_workspace:
+        root: .
+        paths:
+        - test_routes.json
+    - run:
+        name: Remove .gitignore files from theme directories
+        command: |
+          # Find and remove all .gitignore files in theme subdirectories
+          if [ -n "${THEME_PATH}" ] && [ -d "${THEME_PATH}" ]; then
+            echo "Removing .gitignore files from theme directory: ${THEME_PATH}"
+            find ${THEME_PATH} -type f -name ".gitignore" -exec rm -f {} \;
+            echo "Removed all .gitignore files from theme directories"
+          else
+            echo "Theme path not found or not defined. Skipping .gitignore removal."
+          fi
+    - run:
+        name: Capture PR-changed config (before build rewrites git)
+        environment:
+          CONFIG_BASE_BRANCH: main
+          CONFIG_SYNC_DIR: config/sync
+          PR_CHANGED_FILE: /tmp/pr-changed-config.txt
+          PR_BASE_DIR: /tmp/pr-base-config
+        command: |
+          # Snapshot which config/sync files the PR changed while the
+          # checkout is still pristine. The later "Sync Drupal config from
+          # prod" step reads this list — by then build:env:push has rewritten
+          # git, so the diff can't be recomputed reliably.
+          chmod +x ./.ci/scripts/config_split/capture-pr-config-changes.sh
+          ./.ci/scripts/config_split/capture-pr-config-changes.sh
+    - run:
+        name: Preparing code for Pantheon
+        command: |
+          # Cutting root .gitignore so composer dependencies can be committed
+          sed -i '1,/^# :::::::::::::::::::::: cut ::::::::::::::::::::::$/d' .gitignore
+
+          # Diagnostic: surface any .gitignore rules that would still exclude
+          # built theme assets. If files under THEME_PATH are listed here,
+          # they WILL be missing from the Pantheon push — fix the matching
+          # ignore rule (typically a `dist/`, `build/`, or `assets/` pattern
+          # in a parent .gitignore that our theme-dir cleanup didn't touch).
+          # Buffer to a file (no pipes!) so SIGPIPE from `head` can't kill
+          # the build under `set -eo pipefail`.
+          if [ -n "${THEME_PATH:-}" ] && [ -d "${THEME_PATH}" ]; then
+            echo "Checking for .gitignore exclusions under ${THEME_PATH}..."
+            IGNORED_TMP="$(mktemp)"
+            git ls-files --others --ignored --exclude-standard "${THEME_PATH}" > "${IGNORED_TMP}" 2>/dev/null || true
+            if [ -s "${IGNORED_TMP}" ]; then
+              echo "⚠️  These built theme files are still .gitignore'd and WILL NOT deploy:"
+              awk 'NR<=40 {print "    " $0} END {if (NR>40) print "    ... (" NR-40 " more)"}' "${IGNORED_TMP}"
+              echo "    (Look for a parent-directory .gitignore with dist/, build/, or assets/ rules.)"
+            else
+              echo "  No .gitignore'd files under ${THEME_PATH}."
+            fi
+            rm -f "${IGNORED_TMP}"
+          fi
+
+          # Strip nested .git dirs BEFORE staging. Composer "source" installs
+          # (dev/@dev branch packages like drupal/pdf:^1.0@dev) are git-cloned
+          # rather than dist-unzipped, and some library installs (e.g.
+          # web/libraries/dropzone) ship their own .git too. If they're still
+          # present at `git add -A`, git records each as a gitlink (embedded
+          # repo) instead of committing its files — so the package's code never
+          # reaches the Pantheon artifact, and `drush config:import` later
+          # fails with "Unable to install the <module> module since it does not
+          # exist". -mindepth 2 protects the project's own top-level .git.
+          echo "Stripping nested .git directories before staging..."
+          NESTED_GIT="$(find . -mindepth 2 -name .git -prune 2>/dev/null || true)"
+          if [ -n "${NESTED_GIT}" ]; then
+            echo "${NESTED_GIT}" | sed 's/^/  removing: /'
+            find . -mindepth 2 -name .git -prune -exec rm -rf {} + 2>/dev/null || true
+          else
+            echo "  none found."
+          fi
+
+          git add -A
+
+          # Diagnostic: show what's about to be deployed so missing files
+          # are obvious in the CI log without having to ssh to Pantheon.
+          # Buffer to a file + truncate via awk (NOT `head`) to avoid the
+          # SIGPIPE/141 trap with high-volume output under `pipefail`.
+          STATUS_TMP="$(mktemp)"
+          git status --short > "${STATUS_TMP}" 2>/dev/null || true
+          STATUS_COUNT=$(wc -l < "${STATUS_TMP}" | tr -d ' ')
+          echo "Files staged for deploy commit (${STATUS_COUNT} total, showing up to 80):"
+          awk 'NR<=80 {print "  " $0} END {if (NR>80) print "  ... (" NR-80 " more)"}' "${STATUS_TMP}"
+          rm -f "${STATUS_TMP}"
+
+          git commit -m "Preparing code for deployment" || true
+    - run:
+        name: Deploying to Pantheon
+        command: ./.ci/scripts/dev-multidev.sh
+        no_output_timeout: 40m
+    - run:
+        name: Sync Drupal config from prod (preserving PR-modified files)
+        no_output_timeout: 40m
+        environment:
+          CONFIG_BASE_BRANCH: main
+          CONFIG_SYNC_DIR: config/sync
+          CONFIG_SYNC_REPORT: /tmp/config-sync-report.md
+          PR_CHANGED_FILE: /tmp/pr-changed-config.txt
+          PR_BASE_DIR: /tmp/pr-base-config
+        command: |
+          chmod +x ./.ci/scripts/config_split/sync-prod-config.sh
+          ./.ci/scripts/config_split/sync-prod-config.sh
+    - run:
+        name: Post config-sync report to PR (mirrored to Jira)
+        when: always
+        environment:
+          CONFIG_SYNC_REPORT: /tmp/config-sync-report.md
+        command: |
+          chmod +x ./.ci/scripts/config_split/post_config_sync_comment.sh
+          ./.ci/scripts/config_split/post_config_sync_comment.sh
+    - run:
+        name: Post config-sync report directly to Jira
+        when: always
+        environment:
+          CONFIG_SYNC_REPORT: /tmp/config-sync-report.md
+        command: |
+          # Posts to Jira REST API directly so prod config drift lands on
+          # the ticket even when no PR is associated, or when the
+          # GitHub→Jira mirror workflow isn't installed. Requires
+          # JIRA_BASE_URL / JIRA_USER / JIRA_TOKEN in a CircleCI context;
+          # the script no-ops cleanly if any are missing.
+          chmod +x ./.ci/scripts/config_split/post_config_sync_jira_comment.sh
+          ./.ci/scripts/config_split/post_config_sync_jira_comment.sh
+    - run:
+        name: Post Multidev URL to GitHub PR
+        command: ./.ci/scripts/post_multidev_url.sh
+    # [notify][jira] Add the multidev URL to the Jira issue sidebar as a
+    # remote link ("deployed to"). Idempotent via globalId — re-deploys
+    # update the link instead of duplicating it. Needs JIRA_BASE_URL /
+    # JIRA_USER / JIRA_TOKEN (same context as the config-sync Jira comment);
+    # the script no-ops cleanly when creds or a real ticket ID are missing.
+    - run:
+        name: Link Multidev URL on Jira issue
+        command: |
+          chmod +x ./.ci/scripts/post_multidev_jira_link.sh
+          ./.ci/scripts/post_multidev_jira_link.sh
+
+    # Save environment variables and Git data for the test job
+    - run:
+        name: Prepare workspace
+        command: |
+          mkdir -p /tmp/workspace
+
+          # Copy the entire working directory to the workspace
+          # This includes the .git directory which is needed for Jira integration
+          echo "Copying files to workspace..."
+          cp -a . /tmp/workspace/
+
+          # Make sure the .git directory exists
+          if [ -d "/tmp/workspace/.git" ]; then
+            echo "Git repository found in workspace"
+            # Ensure Git is properly configured in the workspace
+            cd /tmp/workspace
+            git config --global --add safe.directory /tmp/workspace
+            git config --global user.email "circleci@example.com"
+            git config --global user.name "CircleCI"
+          else
+            echo "Warning: .git directory not found in workspace"
+          fi
+
+          # Save environment variables
+          {
+            echo "export TERMINUS_SITE='${TERMINUS_SITE}'"
+            echo "export TERMINUS_ENV='${TERMINUS_ENV}'"
+            echo "export MULTIDEV_SITE_URL='${MULTIDEV_SITE_URL}'"
+            echo "export DEV_SITE_URL='${DEV_SITE_URL}'"
+          } > /tmp/workspace/env_vars.sh
+
+          # Carry the COMPILED theme assets to the Behat jobs. Those jobs do a
+          # fresh checkout + composer install and do NOT build the theme, so the
+          # gitignored built CSS/JS (dist/, css/, js/) produced above is absent
+          # there and the site renders unstyled — which breaks Behat steps that
+          # rely on CSS-driven visibility. Stage the theme dir (minus
+          # node_modules) and record its project-relative path so Behat can
+          # restore it to the same location (THEME_PATH isn't recomputed there).
+          # Always create the targets so persist_to_workspace never errors on a
+          # missing path, even when THEME_PATH is unset.
+          mkdir -p /tmp/workspace/theme-build
+          : > /tmp/workspace/theme-path.txt
+          if [ -n "${THEME_PATH:-}" ] && [ -d "${THEME_PATH}" ]; then
+            THEME_REL="${THEME_PATH#./}"
+            printf '%s\n' "${THEME_REL}" > /tmp/workspace/theme-path.txt
+            mkdir -p "/tmp/workspace/theme-build/${THEME_REL}"
+            tar -C "${THEME_PATH}" --exclude=node_modules -cf - . \
+              | tar -C "/tmp/workspace/theme-build/${THEME_REL}" -xf -
+            echo "Staged compiled theme assets for Behat: ${THEME_REL}"
+          else
+            echo "THEME_PATH unset or missing — no theme assets staged for Behat."
+          fi
+
+          # Debug: Show what we're saving
+          echo "=== Workspace Contents ==="
+          ls -la /tmp/workspace
+          echo "\n=== Saved Environment Variables ==="
+          cat /tmp/workspace/env_vars.sh
+          echo "=================================="
+
+    - persist_to_workspace:
+        root: /tmp/workspace
+        paths:
+        - env_vars.sh
+        - .ci/
+        - .circleci/
+        - .git/
+        - test_routes.json
+        # Compiled theme assets + their project-relative path, consumed by the
+        # Behat jobs (which don't build the theme themselves).
+        - theme-build/
+        - theme-path.txt
+
+    # [notify][jira] Record this deploy in the Jira issue's deployment panel.
+    # `environment` is the deployed URL (env vars expand at runtime); each
+    # workflow passes the right URL + Atlassian category via job parameters
+    # (PR → multidev URL/development, master → dev URL/staging). Needs the
+    # JIRA_WEBHOOK_URL context. Last step so it reflects the job's outcome.
+    - jira/notify:
+        job_type: deployment
+        environment: << parameters.jira_environment >>
+        environment_type: << parameters.jira_environment_type >>
+        pipeline_id: << pipeline.id >>
+        pipeline_number: << pipeline.number >>
+
+  # Playwright visual regression testing job
+  playwright_visual_tests:
+    executor: playwright
+    resource_class: medium
+    working_directory: /tmp/workspace
+    parameters:
+      # Which environments VRT compares. Snapshots are generated FROM the
+      # reference (baseline); the target (new code) is compared against them.
+      #   • PR flow (default): reference = dev,  target = multidev
+      #   • master flow:        reference = prod, target = dev
+      # URLs (env vars expand at runtime since env_vars.sh is sourced first).
+      vrt_reference_url:
+        type: string
+        default: "${DEV_SITE_URL}"
+      vrt_target_url:
+        type: string
+        default: "${MULTIDEV_SITE_URL}"
+    environment:
+      ARTIFACTS_FULL_DIR: /tmp/workspace/artifacts
+    steps:
+    # [persist][vars] Attach workspace to load saved environment variables and code
+    - attach_workspace:
+        at: /tmp/workspace
+    # [setup] Set up Docker for running visual tests
+    - setup_remote_docker:
+        docker_layer_caching: true
+    # [setup][notify] Install jq for Jira notifications
+    - run:
+        name: Install jq
+        command: apt-get update && apt-get install -y jq
+    # [vars] Load environment variables from the workspace
+    - run:
+        name: Load environment variables
+        command: |
+          # Source the environment variables file
+          if [ -f /tmp/workspace/env_vars.sh ]; then
+            echo "Loading environment variables from workspace..."
+            source /tmp/workspace/env_vars.sh
+            # Add to BASH_ENV for subsequent steps
+            cat /tmp/workspace/env_vars.sh >> $BASH_ENV
+            source $BASH_ENV
+
+            # Debug: Show key environment variables
+            echo "DEV_SITE_URL: $DEV_SITE_URL"
+            echo "MULTIDEV_SITE_URL: $MULTIDEV_SITE_URL"
+          else
+            echo "Warning: Environment variables file not found"
+          fi
+
+    # [guard] Wait for the multidev to wake before hitting it. Pantheon
+    # appservers cold-start in 30–60s; without this the first screenshots
+    # race the spin-up and flake. Runs first so the wait is explicit.
+    - run:
+        name: Check multidev is ready
+        command: |
+          chmod +x ./.ci/scripts/check-multidev.sh
+          ./.ci/scripts/check-multidev.sh
+
+    # [test] Run visual regression tests with Playwright. The executor image
+    # ships the browsers + OS deps preinstalled, so there's no runtime download —
+    # just install the project's npm deps and run.
+    - run:
+        name: Run Playwright visual regression tests
+        command: |
+          echo "Current directory: $(pwd)"
+          cd /tmp/workspace/.ci/test/visual-regression
+          echo "Installing npm dependencies..."
+          # Use npm ci for cleaner and faster installs in CI.
+          npm ci
+          echo "Running Playwright tests..."
+          # Per-workflow comparison targets (PR: dev↔multidev, master: prod↔dev).
+          # Exported here so run-playwright picks them up; env vars in the param
+          # values expand now (env_vars.sh was sourced above).
+          export VRT_REFERENCE_URL="<< parameters.vrt_reference_url >>"
+          export VRT_TARGET_URL="<< parameters.vrt_target_url >>"
+          echo "VRT reference (baseline): $VRT_REFERENCE_URL"
+          echo "VRT target (candidate):   $VRT_TARGET_URL"
+          chmod +x ./run-playwright
+          ./run-playwright
+
+    # [artifacts] Store screenshots with visual comparison reports.
+    # store_artifacts/store_test_results run even after a failed step by default,
+    # so the diff report (what the Slack message links to) is captured on failure
+    # too — no `when` needed (and `when` is redundant on these step types).
+    - store_artifacts:
+        path: /tmp/workspace/.ci/test/visual-regression/playwright-report
+
+    # [artifacts] Store JUnit test results
+    - store_test_results:
+        path: /tmp/workspace/.ci/test/visual-regression/test-results
+
+    # [notify] Build a Slack message naming the failed tests. Runs only on
+    # failure; reads the list run-playwright wrote from the JSON report and
+    # exports SLACK_FAILURE_TEXT (mrkdwn) for the slack/notify step below.
+    - run:
+        name: Summarize Playwright failures for Slack
+        when: on_fail
+        command: |
+          cd /tmp/workspace/.ci/test/visual-regression || exit 0
+          F=test-results/slack-failures.txt
+          COUNT=0
+          LIST=""
+          if [ -s "$F" ]; then
+            COUNT=$(grep -c . "$F" 2>/dev/null || echo 0)
+            # Strip chars that would break the JSON string or re-trigger shell
+            # expansion when sourced from BASH_ENV (" \ $ `), bullet each line,
+            # then join with a LITERAL \n (Slack renders it as a newline).
+            LIST=$(sed -e 's/[\\"$`]//g' "$F" \
+                     | sed '/^[[:space:]]*$/d' \
+                     | sed 's/^/• /' \
+                     | awk 'NR==1{printf "%s",$0} NR>1{printf "\\n%s",$0}')
+          fi
+          [ -n "$LIST" ] || LIST="• (see the Playwright report in the Artifacts tab)"
+          TEXT="*Visual regression failed:* ${CIRCLE_PROJECT_REPONAME} (${CIRCLE_BRANCH})\\n\\n*${COUNT} test(s) failed:*\\n${LIST}\\n\\n<${CIRCLE_BUILD_URL}|Open the CircleCI job> — full diff report is under the *Artifacts* tab."
+          echo "export SLACK_FAILURE_TEXT=\"${TEXT}\"" >> "$BASH_ENV"
+    # [notify] Notify Slack on failure with the named failures + report link.
+    - slack/notify:
+        event: fail
+        channel: C06G970M5PF
+        custom: |
+          {
+            "blocks": [
+              {
+                "type": "section",
+                "text": { "type": "mrkdwn", "text": "${SLACK_FAILURE_TEXT}" }
+              },
+              {
+                "type": "actions",
+                "elements": [
+                  {
+                    "type": "button",
+                    "text": { "type": "plain_text", "text": "View job & diff report", "emoji": true },
+                    "url": "${CIRCLE_BUILD_URL}"
+                  }
+                ]
+              }
+            ]
+          }
+    # [notify][jira] Report the VRT run to Jira as a BUILD (not a deployment) —
+    # this job tests an already-deployed env, it doesn't deploy. The actual
+    # deployment record is emitted by build_and_deploy.
+    - jira/notify:
+        job_type: build
+        debug: true
+        pipeline_id: << pipeline.id >>
+        pipeline_number: << pipeline.number >>
+  # Behat functional tests — SETUP phase (runs once).
+  #
+  # Builds the project, installs Drupal into the MariaDB service container,
+  # then exports the installed DB as a gzip dump persisted to the workspace.
+  # The parallel `behat_test` containers import that dump instead of each
+  # re-installing Drupal from scratch — turning an N×(slow install) cost into
+  # 1×install + N×(fast import).
+  #
+  # Like every test job here it self-skips via `circleci-agent step halt` when
+  # the project ships no tests/behat directory, so the tool adapts to projects
+  # with or without Behat coverage with no config changes.
+  behat_setup:
+    executor: behat
+    resource_class: small
+    steps:
+    - checkout
+    # [gate] Skip the whole job unless the project ships Behat tests. Runs
+    # first so a Behat-less project never pays for the DB install/export.
+    - run:
+        name: Skip if project has no tests/behat
+        command: |
+          if [ ! -d tests/behat ]; then
+            echo "No tests/behat directory in this project — skipping Behat setup."
+            circleci-agent step halt
+          fi
+    # (No XVFB here — setup is all CLI work; Chrome/XVFB only run in behat_test.)
+    - run:
+        name: Setting PHP vars
+        command: |
+          echo 'memory_limit = -1' | sudo tee -a /usr/local/etc/php/conf.d/docker-php-memlimit.ini
+          echo 'memory_limit = -1' | sudo tee -a /usr/local/etc/php/conf.d/memory.ini
+          echo "display_errors = On" | sudo tee /usr/local/etc/php/conf.d/display_errors.ini
+          echo "display_startup_errors = On" | sudo tee -a /usr/local/etc/php/conf.d/display_errors.ini
+          echo "error_reporting = E_ALL" | sudo tee -a /usr/local/etc/php/conf.d/display_errors.ini
+    # Behat runs against a LOCAL Drupal install (its own DB), independent of the
+    # Pantheon deploy — so we build vendor/ here rather than relying on a
+    # persisted build artifact (this pipeline's build_and_deploy doesn't ship
+    # one). Project-specific asset builds (gulp/npm) should live in configure-site.
+    - run:
+        name: Composer install
+        command: |
+          if [ -f composer.json ]; then
+            composer install --no-ansi --no-interaction --optimize-autoloader --no-progress
+          else
+            echo "No composer.json found, skipping composer install."
+          fi
+    # Pull the compiled theme assets staged upstream. Cheap: the workspace only
+    # carries the built CSS/JS (node_modules excluded), not the whole tree.
+    #   • PR flow:     build_and_deploy runs first and stages them.
+    #   • master flow: the dedicated build_assets job (build-tools-ci image, with
+    #                  Composer + Node) runs first and stages them.
+    # Either way the assets are present in the workspace here and get restored
+    # below. The in-job fallback build is only a last resort if neither upstream
+    # staged anything AND this image happens to have npm.
+    - attach_workspace:
+        at: /tmp/workspace
+    - run:
+        name: Restore compiled theme assets from build
+        command: |
+          set -eo pipefail
+          if [ ! -s /tmp/workspace/theme-path.txt ]; then
+            echo "No staged theme path — skipping (will try a local build next)."
+            exit 0
+          fi
+          THEME_REL="$(cat /tmp/workspace/theme-path.txt)"
+          SRC="/tmp/workspace/theme-build/${THEME_REL}"
+          if [ -n "${THEME_REL}" ] && [ -d "${SRC}" ]; then
+            echo "Restoring compiled theme assets to ${THEME_REL}"
+            mkdir -p "${THEME_REL}"
+            # Overlay built assets onto the checked-out theme source.
+            cp -a "${SRC}/." "${THEME_REL}/"
+            # Flag downstream so the fallback build doesn't rebuild needlessly.
+            echo 'export THEME_RESTORED=1' >> "$BASH_ENV"
+            # Confirm compiled output actually landed where the theme's
+            # *.libraries.yml expects it. If this prints the dirs but Behat is
+            # STILL unstyled, the cause is Drupal-side (theme not enabled /
+            # aggregation / wrong docroot) — not the build.
+            echo "Restored theme tree (compiled dirs):"
+            for d in dist build css assets js; do
+              [ -d "${THEME_REL}/${d}" ] && echo "    ${THEME_REL}/${d} ($(du -sh "${THEME_REL}/${d}" 2>/dev/null | cut -f1))"
+            done
+          else
+            echo "No staged theme assets at ${SRC} — will try a local build next."
+          fi
+    # Last-resort theme build for the unusual case where NOTHING upstream staged
+    # assets (no build_and_deploy on this flow and no build_assets) AND this
+    # image has npm. In the normal master/PR flows the restore above already ran,
+    # so this skips (THEME_RESTORED=1). Best-effort and NON-FATAL: it must never
+    # break the deploy gate, so every failure path just warns and the site may
+    # render unstyled. Picks up THEME_* from env_vars.sh / CircleCI project env.
+    - run:
+        name: Build theme locally if not carried from build
+        command: |
+          if [ "${THEME_RESTORED:-0}" = "1" ]; then
+            echo "Theme assets already restored from build — skipping local build."
+            exit 0
+          fi
+          [ -f ./.circleci/env_vars.sh ] && source ./.circleci/env_vars.sh || true
+          [ -f ./.ci/scripts/detect_web_root.sh ] && source ./.ci/scripts/detect_web_root.sh || true
+          if [ -z "${THEME_PATH:-}" ] || [ ! -d "${THEME_PATH}" ]; then
+            echo "No usable THEME_PATH — skipping theme build (site may be unstyled)."
+            exit 0
+          fi
+          if ! command -v npm >/dev/null 2>&1; then
+            echo "npm not available in this image — skipping theme build (site may be unstyled)."
+            exit 0
+          fi
+          echo "Building theme at ${THEME_PATH}"
+          ( cd "${THEME_PATH}" \
+              && bash -c "${THEME_INSTALL:-npm ci}" \
+              && bash -c "${THEME_BUILD:-npm run build}" ) \
+            || echo "Theme build failed — continuing (site may be unstyled)."
+    - run:
+        name: Configuring Drupal
+        command: ./.ci/test/behat/configure-site
+    - run:
+        name: Create DB
+        command: |
+          dockerize -wait tcp://localhost:3306 -timeout 4m
+          mysql -h 127.0.0.1 -P 3306 -u root -proot -e "CREATE DATABASE circle_test;"
+    - run:
+        name: Installing Drupal and importing config
+        no_output_timeout: 30m
+        command: |
+          # `drush config:import` prints its full change table — on a fresh
+          # minimal-profile install that's thousands of "Create" rows that blow
+          # past CircleCI's 50 MB step-output cap, truncating the step and making
+          # it look hung. Strip the table rows (lines starting with '|' or '+--')
+          # from the console but keep every real progress/error line, and save
+          # the complete output as an artifact. --line-buffered keeps output
+          # flowing so no_output_timeout can still catch a genuine hang.
+          mkdir -p ./tmp/behat-logs
+          set -o pipefail
+          set +e
+          ./.ci/test/behat/install-drupal 2>&1 \
+            | tee ./tmp/behat-logs/install-drupal.log \
+            | grep --line-buffered -avE '^[[:space:]]*(\||\+--)'
+          status=${PIPESTATUS[0]}
+          set -e
+          exit "$status"
+    - store_artifacts:
+        path: ./tmp/behat-logs
+        destination: behat-logs
+    - run:
+        name: Disable Hubspot module
+        command: ./vendor/bin/drush pm:uninstall hubspot -y || echo "Hubspot not enabled"
+    - run:
+        name: Clear Drupal Cache
+        command: ./vendor/bin/drush cr
+    - run:
+        name: Export database for parallel jobs
+        command: |
+          mkdir -p ./tmp/behat-db-export
+          ./vendor/bin/drush sql-dump --gzip > ./tmp/behat-db-export/drupal-installed.sql.gz
+          echo "Database exported to ./tmp/behat-db-export/drupal-installed.sql.gz"
+          ls -lh ./tmp/behat-db-export/
+    # Persist the built tree (vendor/, config, etc.) — `.` already includes
+    # ./tmp/behat-db-export, so the DB dump rides along.
+    - persist_to_workspace:
+        root: .
+        paths:
+        - .
+
+  # Behat functional tests — RUN phase (parallelized).
+  #
+  # Attaches the built tree + DB dump from behat_setup, imports the dump into
+  # its own MariaDB service container, then runs its shard of the Behat suite.
+  # Self-skips when the project ships no tests/behat directory.
+  behat_test:
+    executor: behat
+    resource_class: medium
+    parallelism: << pipeline.parameters.behat_parallelism >>
+    steps:
+    # [gate] FIRST: skip unless the project ships Behat tests. A cheap checkout
+    # gives us tests/behat to test against, so a Behat-less project halts here
+    # WITHOUT paying to pull the (large) persisted workspace below.
+    - checkout
+    - run:
+        name: Skip if project has no tests/behat
+        command: |
+          if [ ! -d tests/behat ]; then
+            echo "No tests/behat directory in this project — skipping Behat."
+            circleci-agent step halt
+          fi
+    # Pull the built tree + DB dump from behat_setup into the working dir.
+    - attach_workspace:
+        at: .
+    - run:
+        name: Start XVFB
+        command: |
+          export DISPLAY=:99.0
+          Xvfb :99 -screen 0 1280x1024x16 &
+    - run:
+        name: Setting PHP vars
+        command: |
+          echo 'memory_limit = -1' | sudo tee -a /usr/local/etc/php/conf.d/docker-php-memlimit.ini
+          echo 'memory_limit = -1' | sudo tee -a /usr/local/etc/php/conf.d/memory.ini
+          echo "display_errors = On" | sudo tee /usr/local/etc/php/conf.d/display_errors.ini
+          echo "display_startup_errors = On" | sudo tee -a /usr/local/etc/php/conf.d/display_errors.ini
+          echo "error_reporting = E_ALL" | sudo tee -a /usr/local/etc/php/conf.d/display_errors.ini
+    - run:
+        name: Create DB and import pre-installed database
+        command: |
+          dockerize -wait tcp://localhost:3306 -timeout 4m
+          mysql -h 127.0.0.1 -P 3306 -u root -proot -e "CREATE DATABASE circle_test;"
+          if [ -f ./tmp/behat-db-export/drupal-installed.sql.gz ]; then
+            # The dump from behat_setup already has Hubspot uninstalled and was
+            # exported post-`drush cr`, so no extra uninstall/cache-clear needed.
+            echo "Importing pre-installed database (much faster than fresh install)..."
+            gunzip -c ./tmp/behat-db-export/drupal-installed.sql.gz | mysql -h 127.0.0.1 -P 3306 -u root -proot circle_test
+            echo "Database imported successfully"
+            # Clear cache after import
+            ./vendor/bin/drush cr
+          else
+            echo "WARNING: Pre-installed database not found, falling back to fresh install"
+            # Same log-cap guard as behat_setup: strip drush's huge config-import
+            # table from the console (lines starting with '|' or '+--') so the
+            # step doesn't exceed CircleCI's 50 MB output cap.
+            ./.ci/test/behat/install-drupal 2>&1 \
+              | grep --line-buffered -avE '^[[:space:]]*(\||\+--)'
+            # Fresh install path only: mirror behat_setup's Hubspot disable.
+            ./vendor/bin/drush pm:uninstall hubspot -y || echo "Hubspot not enabled"
+            ./vendor/bin/drush cr
+          fi
+    - run:
+        name: Create artifact dir
+        command: cd /var/www/project && mkdir -p ./tests/behat/results && mkdir -p ./tests/behat/results/junit
+
+    - run:
+        name: Globbing Behat tests
+        command: |
+          echo $(circleci tests glob "tests/behat/features/*")
+          circleci tests glob "tests/behat/features/*" | xargs -n 1 echo
+    - run:
+        name: Setup Apache
+        command: |
+          [ -f /var/run/apache2/apache2.pid ] && sudo rm /var/run/apache2/apache2.pid
+          [ -f /var/lock/apache2/apache2.pid ] && sudo rm /var/lock/apache2/apache2.pid
+          sudo service apache2 start
+          echo 127.0.0.1 drupal-circleci-behat.localhost | sudo tee -a /etc/hosts
+          sudo service apache2 restart
+    - run:
+        name: Trigger page load to initialize H5P libraries
+        command: |
+          # Wait for Apache to be fully ready
+          sleep 2
+          # Make a request to the homepage to trigger Drupal bootstrap and H5P library initialization
+          curl -s -o /dev/null -w "%{http_code}" http://drupal-circleci-behat.localhost/ || echo "Page load triggered (exit code $?)"
+    - run:
+        name: Split and run Behat tests
+        command: |
+          # chrome.sh (headless-browser launcher for @javascript scenarios) is
+          # PROJECT-SUPPLIED and optional — some projects start the browser
+          # inside their runner instead, or don't run JS scenarios. Only launch
+          # it if shipped, so a missing file doesn't 127 the job.
+          if [ -f ./.ci/test/behat/chrome.sh ]; then
+            echo "Launching headless browser via chrome.sh..."
+            chmod +x ./.ci/test/behat/chrome.sh
+            ./.ci/test/behat/chrome.sh
+          else
+            echo "No .ci/test/behat/chrome.sh — assuming the runner manages the browser."
+          fi
+          # Projects ship either run-tests-circle (CI-specific profile) or
+          # run-tests. Prefer the CI one; fall back to run-tests.
+          if [ -f ./.ci/test/behat/run-tests-circle ]; then
+            chmod +x ./.ci/test/behat/run-tests-circle
+            ./.ci/test/behat/run-tests-circle
+          elif [ -f ./.ci/test/behat/run-tests ]; then
+            chmod +x ./.ci/test/behat/run-tests
+            ./.ci/test/behat/run-tests
+          else
+            echo "ERROR: no Behat runner found (.ci/test/behat/run-tests-circle or run-tests)." >&2
+            exit 1
+          fi
+    # store_artifacts/store_test_results run even after a failed step by default,
+    # so results/logs (what the Slack message points to) land on failure too —
+    # no `when` needed (and `when` is redundant on these step types).
+    - store_artifacts:
+        path: ./tests/behat/results
+        destination: artifacts
+    - store_test_results:
+        path: ./tests/behat/results
+    - store_artifacts:
+        path: /tmp/chrome.log
+        destination: artifact-files
+    - store_artifacts:
+        path: /tmp/test_messages.log
+        destination: behat-test-logs
+    - run:
+        name: Enable Hubspot module
+        when: always
+        command: ./vendor/bin/drush pm-enable hubspot -y || echo "Hubspot not present"
+    # [notify] Build a Slack message naming the failed Behat scenarios. Runs
+    # only on failure; parses the JUnit XML the runner wrote and exports
+    # SLACK_FAILURE_TEXT (mrkdwn) for the slack/notify step below. Best-effort:
+    # the Behat runner/format is project-supplied, so it falls back to a link.
+    - run:
+        name: Summarize Behat failures for Slack
+        when: on_fail
+        command: |
+          RESULTS_DIR=./tests/behat/results
+          COUNT=0
+          LIST=""
+          if ls "${RESULTS_DIR}"/*.xml >/dev/null 2>&1; then
+            # Pull the name="..." of every <testcase> that contains a <failure>
+            # or <error>. Handles the common multi-line JUnit layout; self-closed
+            # (passing) testcases are ignored.
+            FAILED=$(awk '
+              /<testcase/ {
+                name=$0
+                sub(/.*name="/, "", name)
+                sub(/".*/, "", name)
+                cur=name
+                if ($0 ~ /\/>/) cur=""
+              }
+              /<(failure|error)/ { if (cur != "") { print cur; cur="" } }
+            ' "${RESULTS_DIR}"/*.xml 2>/dev/null | sort -u)
+            if [ -n "$FAILED" ]; then
+              COUNT=$(printf '%s\n' "$FAILED" | grep -c .)
+              LIST=$(printf '%s\n' "$FAILED" \
+                       | sed -e 's/[\\"$`]//g' \
+                       | sed '/^[[:space:]]*$/d' \
+                       | sed 's/^/• /' \
+                       | awk 'NR==1{printf "%s",$0} NR>1{printf "\\n%s",$0}')
+            fi
+          fi
+          [ -n "$LIST" ] || LIST="• (see the Behat results in the Artifacts tab)"
+          TEXT="*Behat tests failed:* ${CIRCLE_PROJECT_REPONAME} (${CIRCLE_BRANCH})\\n\\n*${COUNT} scenario(s) failed:*\\n${LIST}\\n\\n<${CIRCLE_BUILD_URL}|Open the CircleCI job> — results are under the *Artifacts* tab."
+          echo "export SLACK_FAILURE_TEXT=\"${TEXT}\"" >> "$BASH_ENV"
+    # [notify] Notify Slack on failure with the named scenarios + report link.
+    - slack/notify:
+        event: fail
+        channel: C06G970M5PF
+        custom: |
+          {
+            "blocks": [
+              {
+                "type": "section",
+                "text": { "type": "mrkdwn", "text": "${SLACK_FAILURE_TEXT}" }
+              },
+              {
+                "type": "actions",
+                "elements": [
+                  {
+                    "type": "button",
+                    "text": { "type": "plain_text", "text": "View job & results", "emoji": true },
+                    "url": "${CIRCLE_BUILD_URL}"
+                  }
+                ]
+              }
+            ]
+          }
+
+  # Compiles the theme for the Behat jobs WITHOUT depending on build_and_deploy.
+  # Used by the master flow, where Behat runs BEFORE the deploy and so can't
+  # inherit the deploy's theme build.
+  #
+  # Runs on the `pantheon` (build-tools-ci) image — NOT a bare Node image —
+  # because the theme's gulp/sass build commonly @imports SCSS from a CONTRIB
+  # base theme (e.g. web/themes/contrib/<base>/src/scss). Those contrib paths
+  # only exist after `composer install`, so a Node-only image fails with
+  # `ENOENT ... web/themes/contrib/<base>/src/scss`. build-tools-ci ships both
+  # Composer AND Node, exactly like build_and_deploy (which is why its theme
+  # build works). Stages into the layout behat_setup's restore expects
+  # (theme-build/<rel> + theme-path.txt). Self-skips when no tests/behat.
+  build_assets:
+    executor: pantheon
+    steps:
+    - checkout
+    - run:
+        name: Skip if project has no tests/behat
+        command: |
+          if [ ! -d tests/behat ]; then
+            echo "No tests/behat — nothing to build for Behat."
+            circleci-agent step halt
+          fi
+    # Shares build_and_deploy's cache key so the Composer download is warm.
+    - restore_cache:
+        keys:
+        - composer-cache-v1-{{ checksum "composer.lock" }}
+        - composer-cache-v1-
+    - run:
+        name: Install Composer dependencies (provides contrib theme deps)
+        command: |
+          if [ -f composer.json ]; then
+            composer install --no-ansi --no-interaction --optimize-autoloader --no-progress
+          else
+            echo "No composer.json — skipping (theme build may fail if it imports contrib)."
+          fi
+    - save_cache:
+        key: composer-cache-v1-{{ checksum "composer.lock" }}
+        paths:
+        - $HOME/.composer/cache
+    - run:
+        name: Build theme and stage assets for Behat
+        command: |
+          set -eo pipefail
+          # Always create the targets so persist_to_workspace never errors.
+          mkdir -p /tmp/workspace/theme-build
+          : > /tmp/workspace/theme-path.txt
+          # Resolve THEME_PATH/THEME_INSTALL/THEME_BUILD from the project's
+          # env_vars.sh and/or CircleCI project env, then normalize the web root.
+          [ -f ./.circleci/env_vars.sh ] && source ./.circleci/env_vars.sh || true
+          [ -f ./.ci/scripts/detect_web_root.sh ] && source ./.ci/scripts/detect_web_root.sh || true
+          if [ -z "${THEME_PATH:-}" ]; then
+            # Genuinely theme-less project: nothing to build, not an error.
+            echo "THEME_PATH unset — no theme to build for Behat."
+            exit 0
+          fi
+          if [ ! -d "${THEME_PATH}" ]; then
+            echo "ERROR: THEME_PATH is set ('${THEME_PATH}') but the directory does not exist."
+            echo "  Fix THEME_PATH in .circleci/env_vars.sh (html/ vs web/ web root?)."
+            exit 1
+          fi
+          echo "Building theme at ${THEME_PATH}"
+          # FATAL on master: Behat gates the deploy here, so a broken theme must
+          # stop the pipeline rather than quietly test (and screenshot) an
+          # unstyled site. build_and_deploy still re-validates before the deploy.
+          ( cd "${THEME_PATH}" \
+              && bash -c "${THEME_INSTALL:-npm ci}" \
+              && bash -c "${THEME_BUILD:-npm run build}" )
+          THEME_REL="${THEME_PATH#./}"
+          printf '%s\n' "${THEME_REL}" > /tmp/workspace/theme-path.txt
+          mkdir -p "/tmp/workspace/theme-build/${THEME_REL}"
+          tar -C "${THEME_PATH}" --exclude=node_modules -cf - . \
+            | tar -C "/tmp/workspace/theme-build/${THEME_REL}" -xf -
+          echo "Staged compiled theme assets for Behat: ${THEME_REL}"
+          # Prove the build actually produced compiled output — a build that exits
+          # 0 but emits no dist/build/css is exactly how Behat ends up unstyled on
+          # master. FATAL: stop here rather than test an unstyled site.
+          STAGED="/tmp/workspace/theme-build/${THEME_REL}"
+          if find "${STAGED}" -type d \( -name dist -o -name build -o -name css -o -name assets \) -print -quit | grep -q .; then
+            echo "✓ Compiled theme output present:"
+            for d in dist build css assets js; do
+              [ -d "${STAGED}/${d}" ] && echo "    ${THEME_REL}/${d} ($(du -sh "${STAGED}/${d}" 2>/dev/null | cut -f1))"
+            done
+          else
+            echo "ERROR: theme build produced no dist/build/css/assets dir — Behat would be unstyled."
+            echo "  THEME_BUILD='${THEME_BUILD:-npm run build}'  THEME_INSTALL='${THEME_INSTALL:-npm ci}'"
+            exit 1
+          fi
+    - persist_to_workspace:
+        root: /tmp/workspace
+        paths:
+        - theme-build/
+        - theme-path.txt
+    # Cache the compiled theme keyed on the exact commit so build_and_deploy can
+    # reuse it instead of rebuilding (master flow). Keyed on {{ .Revision }} so a
+    # new commit always rebuilds. A selective cache restore is what lets
+    # build_and_deploy grab just the theme — attaching the workspace would also
+    # pull behat_setup's heavy full-tree persist.
+    - save_cache:
+        key: theme-compiled-v1-{{ .Revision }}
+        paths:
+        - /tmp/workspace/theme-build
+        - /tmp/workspace/theme-path.txt
+
+# [workflows] Two orderings selected by branch:
+#
+#   • pr_build_test (all branches EXCEPT master): feature-branch / PR flow.
+#     Deploy to the multidev FIRST, then run tests against the live preview.
+#     Tests do not block the multidev deploy.
+#
+#   • master_test_then_deploy (master only → Pantheon dev): Behat runs FIRST and
+#     BLOCKS the deploy — master only deploys to dev if Behat passes. Playwright
+#     runs AFTER the deploy as a non-blocking check (nothing depends on it).
+#
+# The jobs are defined once under `jobs:` and reused in both workflows with
+# different `requires` + branch filters. Branch filters ensure only the matching
+# workflow's jobs actually run for a given branch.
+workflows:
+  # Feature-branch / PR flow: deploy to the multidev, then test it.
+  pr_build_test:
+    jobs:
+    - check_multidev_capacity:
+        filters:
+          branches:
+            ignore: master
+        context:
+        - GITHUB_TOKEN
+        - JIRA_API_TOKEN
+        - JIRA_WEBHOOK
+    - build_and_deploy:
+        filters:
+          branches:
+            ignore: master
+        requires:
+        - check_multidev_capacity
+        # PR deploys land on the multidev; record it as a "development" deploy.
+        jira_environment: "${MULTIDEV_SITE_URL}"
+        jira_environment_type: development
+        context:
+        - GITHUB_TOKEN
+        - JIRA_WEBHOOK_URL
+    - playwright_visual_tests:
+        filters:
+          branches:
+            ignore: master
+        requires:
+        - build_and_deploy
+        context:
+        - SLACK_ACCESS_TOKEN
+        - JIRA_WEBHOOK_URL
+        # Carries both VRT_USERNAME and VRT_PASSWORD for authenticated routes.
+        - VRT_USERNAME
+    - behat_setup:
+        filters:
+          branches:
+            ignore: master
+        requires:
+        - build_and_deploy
+        context:
+        - GITHUB_TOKEN
+        - SLACK_ACCESS_TOKEN
+    - behat_test:
+        filters:
+          branches:
+            ignore: master
+        requires:
+        - behat_setup
+        context:
+        - GITHUB_TOKEN
+        - SLACK_ACCESS_TOKEN
+
+  # master flow: Behat gates the deploy to Pantheon dev.
+  master_test_then_deploy:
+    jobs:
+    # Build the theme first so Behat renders a styled site (the deploy job that
+    # would normally supply assets runs AFTER Behat here). No multidev capacity
+    # check needed — master deploys to the existing dev env, not a multidev.
+    - build_assets:
+        filters:
+          branches:
+            only: master
+        # composer install needs the token (GitHub API rate limits / private VCS).
+        context:
+        - GITHUB_TOKEN
+    - behat_setup:
+        filters:
+          branches:
+            only: master
+        requires:
+        - build_assets
+        context:
+        - GITHUB_TOKEN
+        - SLACK_ACCESS_TOKEN
+    - behat_test:
+        filters:
+          branches:
+            only: master
+        requires:
+        - behat_setup
+        context:
+        - GITHUB_TOKEN
+        - SLACK_ACCESS_TOKEN
+    # Deploy to dev ONLY after Behat passes.
+    - build_and_deploy:
+        filters:
+          branches:
+            only: master
+        requires:
+        - behat_test
+        # master deploys to Pantheon's dev env; recorded as a "development"
+        # deploy (Atlassian has no "dev" category — see job parameter notes).
+        jira_environment: "${DEV_SITE_URL}"
+        jira_environment_type: development
+        context:
+        - GITHUB_TOKEN
+        - JIRA_WEBHOOK_URL
+    # VRT after the dev deploy: compares the freshly-deployed DEV (candidate)
+    # against PROD/LIVE (baseline) to catch visual regressions this release
+    # introduces vs production. Runs after the deploy (doesn't block it).
+    - playwright_visual_tests:
+        filters:
+          branches:
+            only: master
+        requires:
+        - build_and_deploy
+        vrt_reference_url: "${LIVE_SITE_URL}"
+        vrt_target_url: "${DEV_SITE_URL}"
+        context:
+        - SLACK_ACCESS_TOKEN
+        - JIRA_WEBHOOK_URL
+        - VRT_USERNAME

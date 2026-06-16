@@ -61,10 +61,17 @@ class Installer
         $this->ensureDirectoryExists($destBase . '/.ci/test/behat');
         $this->ensureDirectoryExists($destBase . '/.ci/scripts');
         
-        // Copy CircleCI config
+        // Copy CircleCI config. config.yml is the dynamic-config ENTRYPOINT
+        // (setup: true) that detects Behat tests and continues into
+        // continue_config.yml, which holds the real pipeline — so BOTH files
+        // must ship together or the pipeline can't continue.
         $this->copyFile(
             $sourceBase . '/.circleci/config.yml',
             $destBase . '/.circleci/config.yml'
+        );
+        $this->copyFile(
+            $sourceBase . '/.circleci/continue_config.yml',
+            $destBase . '/.circleci/continue_config.yml'
         );
 
         // Skip .env.example copying for now
