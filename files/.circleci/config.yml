@@ -27,12 +27,22 @@ executors:
     - image: ghcr.io/helloworlddevs/playwright:v1.52.0-noble
     working_directory: ~/project
 
-  # Behat executor: a Drupal/PHP testing image PLUS a MariaDB service container.
-  # The second image is what makes `dockerize -wait tcp://localhost:3306` work —
-  # it's the database listening on localhost:3306. The default `pantheon`
-  # executor is a single image with NO db service, which is why dockerize there
-  # hangs the full timeout and fails. The testing image ships dockerize, apache,
-  # drush, composer and headless chrome for functional Behat runs.
+  # Behat executor: a Drupal/PHP testing image PLUS a MariaDB service container
+  # PLUS a Selenium-Chrome service container.
+  #   - The MariaDB image is what makes `dockerize -wait tcp://localhost:3306`
+  #     work — it's the database listening on localhost:3306. The default
+  #     `pantheon` executor is a single image with NO db service, which is why
+  #     dockerize there hangs the full timeout and fails.
+  #   - The Selenium-Chrome image provides the browser for @javascript scenarios
+  #     at localhost:4444 (the wd_host that behat.yml's selenium2 session points
+  #     at — e.g. http://drupal-circleci-behat.localhost:4444/wd/hub, which
+  #     resolves to 127.0.0.1). Our old custom testing image bundled the browser;
+  #     running it as a dedicated service container is the CircleCI-native
+  #     replacement so we don't need a project-supplied chrome.sh launcher.
+  #     Pinned to Selenium 3 (legacy JSONWire/WebDriver protocol) because the
+  #     `circleci` Behat profile sets chromeOptions.w3c=false, which the
+  #     instaclick/selenium2 Mink driver requires.
+  # The testing image ships dockerize, apache, drush and composer.
   behat:
     docker:
     - image: helloworlddevs/atdove-testing-image:v1
@@ -44,6 +54,8 @@ executors:
         MYSQL_PASSWORD: root
         MYSQL_USER: user
         DRUPAL_DB_HOST: 127.0.0.1
+    - image: selenium/standalone-chrome:3.141.59-20210929
+      name: selenium-chrome
     working_directory: /var/www/project
     environment:
       TZ: "/usr/share/zoneinfo/America/Los_Angeles"
@@ -918,8 +930,35 @@ jobs:
     - run:
         name: Split and run Behat tests
         command: |
-          ./.ci/test/behat/chrome.sh
-          ./.ci/test/behat/run-tests-circle
+          # Wait for the Selenium-Chrome service container to be ready to accept
+          # sessions so @javascript scenarios don't race a not-yet-up browser.
+          # Non-fatal: projects with no JS scenarios shouldn't be blocked if the
+          # status endpoint is slow/unavailable.
+          dockerize -wait http://localhost:4444/wd/hub/status -timeout 2m \
+            || echo "WARNING: Selenium not confirmed ready (only affects @javascript scenarios)."
+          # chrome.sh (headless-browser launcher for @javascript scenarios) is
+          # PROJECT-SUPPLIED and optional — some projects start the browser
+          # inside their runner instead, or don't run JS scenarios. Only launch
+          # it if shipped, so a missing file doesn't 127 the job.
+          if [ -f ./.ci/test/behat/chrome.sh ]; then
+            echo "Launching headless browser via chrome.sh..."
+            chmod +x ./.ci/test/behat/chrome.sh
+            ./.ci/test/behat/chrome.sh
+          else
+            echo "No .ci/test/behat/chrome.sh — assuming the runner manages the browser."
+          fi
+          # Projects ship either run-tests-circle (CI-specific profile) or
+          # run-tests. Prefer the CI one; fall back to run-tests.
+          if [ -f ./.ci/test/behat/run-tests-circle ]; then
+            chmod +x ./.ci/test/behat/run-tests-circle
+            ./.ci/test/behat/run-tests-circle
+          elif [ -f ./.ci/test/behat/run-tests ]; then
+            chmod +x ./.ci/test/behat/run-tests
+            ./.ci/test/behat/run-tests
+          else
+            echo "ERROR: no Behat runner found (.ci/test/behat/run-tests-circle or run-tests)." >&2
+            exit 1
+          fi
     # store_artifacts/store_test_results run even after a failed step by default,
     # so results/logs (what the Slack message points to) land on failure too —
     # no `when` needed (and `when` is redundant on these step types).

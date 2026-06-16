@@ -52,6 +52,14 @@ if [ "${missing}" -eq 1 ]; then
   exit 0
 fi
 
+# jq builds the JSON payload below. It's not in every executor image, and this
+# step is documented as non-fatal — so if jq is missing, log and skip rather
+# than hard-failing the deploy under `set -euo pipefail`.
+if ! command -v jq >/dev/null 2>&1; then
+  echo "⚠️  jq is not installed in this image — skipping Jira remote link."
+  exit 0
+fi
+
 AUTH="$(printf '%s' "${JIRA_USER}:${JIRA_TOKEN}" | base64 | tr -d '\n')"
 URL="${JIRA_BASE_URL%/}/rest/api/3/issue/${JIRA_TICKET_ID}/remotelink"
 

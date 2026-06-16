@@ -53,15 +53,21 @@ trap 'rm -rf "$PROD_TMP"' EXIT
 # its own appserver host (appserver.<env>.<id>.drush.in). A freshly-created
 # multidev's host key isn't in known_hosts yet, so the first rsync-over-SSH
 # upload otherwise blocks FOREVER on an interactive "yes/no" host-key prompt —
-# which in CI looks like a hang at "Uploading merged config". Pre-trust the
-# Pantheon host pattern so the connection proceeds unattended. Idempotent.
+# which in CI looks like a hang at "Uploading merged config".
+#
+# Use `accept-new` rather than `no`: it auto-trusts a host the FIRST time it's
+# seen (so the fresh-multidev case proceeds unattended) but records the key in
+# known_hosts and REJECTS a subsequent key change — i.e. it still protects
+# against MITM/key-swap, unlike `StrictHostKeyChecking no` + UserKnownHostsFile
+# /dev/null, which silently accept whatever key is presented every time.
+# Idempotent.
 mkdir -p "${HOME}/.ssh"
+chmod 700 "${HOME}/.ssh"
 if ! grep -qs 'drush\.in' "${HOME}/.ssh/config"; then
   cat >> "${HOME}/.ssh/config" <<'SSHCFG'
 
 Host *.drush.in
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
+  StrictHostKeyChecking accept-new
   LogLevel ERROR
 SSHCFG
   chmod 600 "${HOME}/.ssh/config"

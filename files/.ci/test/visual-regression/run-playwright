@@ -5,9 +5,11 @@ set -e  # Exit on any error
 # This script runs visual regression tests using Playwright's built-in testing tools
 #
 
-# Debug: Print environment variables
+# Debug: Print environment variables. `|| true` keeps this purely diagnostic:
+# under `set -e`, grep exiting 1 (no matches) would otherwise abort the script
+# before the explicit "Required environment variables are not set" check below.
 echo "=== Environment Variables in Run Script ==="
-set | grep -E 'DEV_SITE_URL|MULTIDEV_SITE_URL|LIVE_SITE_URL|VRT_REFERENCE_URL|VRT_TARGET_URL|TERMINUS_'
+set | grep -E 'DEV_SITE_URL|MULTIDEV_SITE_URL|LIVE_SITE_URL|VRT_REFERENCE_URL|VRT_TARGET_URL|TERMINUS_' || true
 echo "==========================================="
 
 # Variables
@@ -73,14 +75,19 @@ find_routes_json() {
 
 # Emit one URL path per line from test_routes.json. Handles both the new
 # `{ routes: { name: url, ... } }` schema and the legacy `{ name: url }`
-# top-level shape. Strips any protocol+host so we can prefix env URLs.
+# top-level shape. Route values may be either a plain URL string OR an object
+# like `{ url: "/dashboard", auth: true }` (the authenticated-route schema the
+# spec uses) — in the object case we read `url` (or `path`). Strips any
+# protocol+host so we can prefix env URLs.
 extract_route_paths() {
   local routes_file="$1"
   node -e "
     const fs = require('fs');
     const raw = JSON.parse(fs.readFileSync('${routes_file}', 'utf8'));
     const routes = (raw && typeof raw.routes === 'object') ? raw.routes : raw;
-    for (const url of Object.values(routes)) {
+    for (const value of Object.values(routes)) {
+      const url = (value && typeof value === 'object') ? (value.url || value.path) : value;
+      if (!url || typeof url !== 'string') continue;
       try {
         const parsed = new URL(/^https?:\/\//.test(url) ? url : 'http://x' + url);
         process.stdout.write(parsed.pathname + parsed.search + '\n');
