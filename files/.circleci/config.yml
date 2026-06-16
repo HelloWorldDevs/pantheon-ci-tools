@@ -792,8 +792,27 @@ jobs:
           mysql -h 127.0.0.1 -P 3306 -u root -proot -e "CREATE DATABASE circle_test;"
     - run:
         name: Installing Drupal and importing config
-        command: ./.ci/test/behat/install-drupal
         no_output_timeout: 30m
+        command: |
+          # `drush config:import` prints its full change table — on a fresh
+          # minimal-profile install that's thousands of "Create" rows that blow
+          # past CircleCI's 50 MB step-output cap, truncating the step and making
+          # it look hung. Strip the table rows (lines starting with '|' or '+--')
+          # from the console but keep every real progress/error line, and save
+          # the complete output as an artifact. --line-buffered keeps output
+          # flowing so no_output_timeout can still catch a genuine hang.
+          mkdir -p ./tmp/behat-logs
+          set -o pipefail
+          set +e
+          ./.ci/test/behat/install-drupal 2>&1 \
+            | tee ./tmp/behat-logs/install-drupal.log \
+            | grep --line-buffered -avE '^[[:space:]]*(\||\+--)'
+          status=${PIPESTATUS[0]}
+          set -e
+          exit "$status"
+    - store_artifacts:
+        path: ./tmp/behat-logs
+        destination: behat-logs
     - run:
         name: Disable Hubspot module
         command: ./vendor/bin/drush pm:uninstall hubspot -y || echo "Hubspot not enabled"
@@ -848,14 +867,6 @@ jobs:
           echo "display_errors = On" | sudo tee /usr/local/etc/php/conf.d/display_errors.ini
           echo "display_startup_errors = On" | sudo tee -a /usr/local/etc/php/conf.d/display_errors.ini
           echo "error_reporting = E_ALL" | sudo tee -a /usr/local/etc/php/conf.d/display_errors.ini
-    # Looks redundant with behat_setup's run (the configured tree is carried in
-    # the workspace) but is kept deliberately: workspaces preserve permission
-    # bits, NOT ownership, so the script's chown of web/sites/default/files to
-    # www-data must be re-applied per container (H5P/file-generating scenarios
-    # need Apache writable). Cheap and idempotent; project scripts may vary.
-    - run:
-        name: Configuring Drupal
-        command: ./.ci/test/behat/configure-site
     - run:
         name: Create DB and import pre-installed database
         command: |
@@ -871,7 +882,11 @@ jobs:
             ./vendor/bin/drush cr
           else
             echo "WARNING: Pre-installed database not found, falling back to fresh install"
-            ./.ci/test/behat/install-drupal
+            # Same log-cap guard as behat_setup: strip drush's huge config-import
+            # table from the console (lines starting with '|' or '+--') so the
+            # step doesn't exceed CircleCI's 50 MB output cap.
+            ./.ci/test/behat/install-drupal 2>&1 \
+              | grep --line-buffered -avE '^[[:space:]]*(\||\+--)'
             # Fresh install path only: mirror behat_setup's Hubspot disable.
             ./vendor/bin/drush pm:uninstall hubspot -y || echo "Hubspot not enabled"
             ./vendor/bin/drush cr
