@@ -11,9 +11,20 @@ executors:
     - image: quay.io/pantheon-public/build-tools-ci:8.x-php8.3
     working_directory: ~/project
 
+  # Playwright VRT executor. Uses the official Playwright image (browsers + OS
+  # deps preinstalled) mirrored into our GHCR org. We mirror rather than pull
+  # mcr.microsoft.com/playwright directly because MCR aggressively rate-limits
+  # anonymous pulls (toomanyrequests / unauthorized) on shared CI egress IPs, and
+  # MCR has no authenticated pull path to raise that limit. GHCR isn't subject to
+  # those limits. The tag MUST match the @playwright/test version pinned in
+  # .ci/test/visual-regression/package-lock.json (currently 1.52.0); if you bump
+  # Playwright, re-mirror the matching tag:
+  #   docker buildx imagetools create \
+  #     --tag ghcr.io/helloworlddevs/playwright:vX.Y.Z-noble \
+  #     mcr.microsoft.com/playwright:vX.Y.Z-noble
   playwright:
     docker:
-    - image: mcr.microsoft.com/playwright:v1.52.0-noble
+    - image: ghcr.io/helloworlddevs/playwright:v1.52.0-noble
     working_directory: ~/project
 
   # Behat executor: a Drupal/PHP testing image PLUS a MariaDB service container.
@@ -571,21 +582,17 @@ jobs:
           chmod +x ./.ci/scripts/check-multidev.sh
           ./.ci/scripts/check-multidev.sh
 
-    # [test] Run visual regression tests with Playwright
+    # [test] Run visual regression tests with Playwright. The executor image
+    # ships the browsers + OS deps preinstalled, so there's no runtime download —
+    # just install the project's npm deps and run.
     - run:
         name: Run Playwright visual regression tests
         command: |
           echo "Current directory: $(pwd)"
-          echo "Listing contents of /tmp/workspace/.ci/test/visual-regression:"
-          ls -la /tmp/workspace/.ci/test/visual-regression
           cd /tmp/workspace/.ci/test/visual-regression
           echo "Installing npm dependencies..."
-          # Use npm ci for cleaner and faster installs in CI
+          # Use npm ci for cleaner and faster installs in CI.
           npm ci
-          echo "Installing Playwright browsers..."
-          # The base image should have system dependencies, so playwright install should suffice
-          # If issues persist, can switch to 'npx playwright install --with-deps'
-          npx playwright install
           echo "Running Playwright tests..."
           # Per-workflow comparison targets (PR: dev↔multidev, master: prod↔dev).
           # Exported here so run-playwright picks them up; env vars in the param
