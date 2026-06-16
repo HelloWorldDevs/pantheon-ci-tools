@@ -146,7 +146,9 @@ class Installer
         // step is standardizable and the old per-project copies were subtly
         // broken (installing a generic profile then config-import, which fails
         // and loops forever on sites with a custom install profile). It
-        // auto-detects the profile and installs via --existing-config. The
+        // auto-detects the profile, installs THAT profile by name, then imports
+        // the exported config on top (works even for profiles with a
+        // hook_install(), which Drupal won't install from config). The
         // remaining behat scripts (configure-site, run-tests/run-tests-circle,
         // chrome.sh) stay PROJECT-SUPPLIED — they're inherently project-specific
         // (theme build, file ownership, enabled modules, test globbing).
