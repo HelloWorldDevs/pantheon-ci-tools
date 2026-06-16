@@ -60,8 +60,29 @@ if [ -f "$CORE_EXT" ]; then
   # imported config on some profiles. Drop it if shortcut is enabled. Non-fatal.
   $DRUSH -y ev 'if (\Drupal::moduleHandler()->moduleExists("shortcut")) { $s = \Drupal::entityTypeManager()->getStorage("shortcut_set")->load("default"); if ($s) { $s->delete(); } }' || true
 
+  # config:import can need several passes on a fresh install. The first pass
+  # installs the modules listed in core.extension, and some module install hooks
+  # query field tables (e.g. comment__comment_body) that aren't created until
+  # their field-storage config is imported LATER in the same run — so the first
+  # pass can die with "Base table or view not found". Module installs persist
+  # across passes, so a retry finishes the remaining config without re-running
+  # those hooks. Bounded so a genuinely broken import fails fast instead of
+  # looping forever (unlike the old unbounded loop, which spun on the
+  # never-satisfiable profile-mismatch error).
   echo "Importing configuration..."
-  $DRUSH -y config:import
+  import_ok=0
+  for attempt in 1 2 3 4 5; do
+    if $DRUSH -y config:import; then
+      import_ok=1
+      echo "config:import succeeded on attempt ${attempt}."
+      break
+    fi
+    echo "config:import attempt ${attempt} did not complete; retrying..."
+  done
+  if [ "$import_ok" -ne 1 ]; then
+    echo "ERROR: config:import did not converge after 5 attempts." >&2
+    exit 1
+  fi
 fi
 
 echo "Running DB Updates"

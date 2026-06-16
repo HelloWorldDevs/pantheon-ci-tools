@@ -293,15 +293,57 @@ else
 fi
 
 echo "==> Committing merged config (if changed)"
+CONFIG_CHANGED=0
 git add "${SYNC_DIR}"
 if git diff --cached --quiet; then
   echo "    No config changes to commit."
 else
   git commit -m "Sync config from ${TERMINUS_SITE}.live (PR-modified files preserved)"
+  CONFIG_CHANGED=1
 fi
 
+# Re-push the merged commit to the multidev so config:import reads it.
+#
+# The initial "Deploying to Pantheon" (build:env:push) ran BEFORE this merge, so
+# the artifact it deployed has the branch's pre-merge config/sync. config:import
+# reads the deployed code's config_sync_directory (typically ../config/sync) —
+# NOT the files/config-sync upload below — so without re-pushing, the prod merge
+# would never actually be imported. Re-pushing the merged commit updates the
+# deployed config/sync to the merged result before we import. Skipped when the
+# merge produced no changes (nothing new to deploy).
+if [ "${CONFIG_CHANGED}" -eq 1 ]; then
+  echo "==> Re-pushing merged config to ${TERMINUS_SITE}.${TERMINUS_ENV}"
+  terminus -n build:env:push "${TERMINUS_SITE}.${TERMINUS_ENV}" --yes
+else
+  echo "==> No merged changes to re-push."
+fi
+
+# Also mirror to files/config-sync for projects whose config_sync_directory
+# points there (harmless otherwise).
 echo "==> Uploading merged config to ${TERMINUS_SITE}.${TERMINUS_ENV}"
 terminus rsync "./${SYNC_DIR}/" "${TERMINUS_SITE}.${TERMINUS_ENV}":files/config-sync/
+
+# Pre-uninstall modules that are enabled on the (often REUSED) multidev but no
+# longer present in the config to be imported. Drupal's config:import frequently
+# can't uninstall a module AND delete that module's config in a single pass — it
+# fails validation with "<config> depends on the <module> that will not be
+# installed after import" and CANNOT self-heal, so every re-run keeps failing.
+# `pm:uninstall` cleanly removes the module and its config first, making the
+# subsequent import conflict-free. Computed against the env's own sync storage
+# (config.storage.sync = the dir config:import actually reads), and the install
+# profile is excluded so we never try to uninstall it. Safety: if sync's
+# core.extension can't be read (empty), we skip rather than risk uninstalling
+# everything.
+echo "==> Reconciling modules removed from config on ${TERMINUS_SITE}.${TERMINUS_ENV}"
+TO_UNINSTALL="$(terminus drush "${TERMINUS_SITE}.${TERMINUS_ENV}" -- ev '$sync = \Drupal::service("config.storage.sync"); $ext = $sync->read("core.extension"); if (is_array($ext) && !empty($ext["module"])) { $active = array_keys(\Drupal::config("core.extension")->get("module")); $remove = array_diff($active, array_keys($ext["module"])); $remove = array_diff($remove, [(string) \Drupal::installProfile()]); echo implode(" ", $remove); }' 2>/dev/null || true)"
+TO_UNINSTALL="$(printf '%s' "${TO_UNINSTALL}" | tr -d '\r' | xargs || true)"
+if [ -n "${TO_UNINSTALL}" ]; then
+  echo "    Enabled on env but removed from config — uninstalling first: ${TO_UNINSTALL}"
+  terminus drush "${TERMINUS_SITE}.${TERMINUS_ENV}" -- pm:uninstall ${TO_UNINSTALL} -y \
+    || echo "    (pm:uninstall reported issues; continuing — config:import will surface anything unresolved)"
+else
+  echo "    No enabled modules need removing ahead of import."
+fi
 
 echo "==> Importing config on ${TERMINUS_SITE}.${TERMINUS_ENV}"
 terminus drush "${TERMINUS_SITE}.${TERMINUS_ENV}" -- config:import -y
