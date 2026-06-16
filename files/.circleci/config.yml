@@ -549,23 +549,29 @@ jobs:
           chmod +x ./.ci/scripts/check-multidev.sh
           ./.ci/scripts/check-multidev.sh
 
-    # [test] Run visual regression tests with Playwright
+    # [test] Run visual regression tests with Playwright. no_output_timeout
+    # guards the install/first-run quiet stretches (browser extraction, the
+    # screenshot stability loop) from CircleCI's default 10m no-output kill.
     - run:
         name: Run Playwright visual regression tests
+        no_output_timeout: 20m
         command: |
           echo "Current directory: $(pwd)"
-          echo "Listing contents of /tmp/workspace/.ci/test/visual-regression:"
-          ls -la /tmp/workspace/.ci/test/visual-regression
           cd /tmp/workspace/.ci/test/visual-regression
-          echo "Installing npm dependencies..."
-          # Use npm ci for cleaner and faster installs in CI
-          npm ci
-          echo "Installing Playwright browser + OS deps (chromium only)..."
-          # --with-deps installs the OS libraries the browser needs (via sudo
-          # apt) since cimg/node is a stock Node image, not Microsoft's
-          # preloaded Playwright image. Only chromium is installed because the
-          # suite defines a single chromium project (playwright.config.js).
-          npx playwright install --with-deps chromium
+          # test_setup pre-installed the Chromium binary into the workspace
+          # (.pw-browsers); point Playwright at it so we skip the slow CDN
+          # download. install-deps still installs the OS libraries chromium
+          # needs (apt, via sudo on cimg/node).
+          export PLAYWRIGHT_BROWSERS_PATH=/tmp/workspace/.pw-browsers
+          if [ ! -d node_modules ]; then
+            echo "node_modules not in workspace — installing..."
+            npm ci
+          fi
+          echo "Installing Chromium OS deps..."
+          npx playwright install-deps chromium
+          # No-op when test_setup already staged the browser; downloads as a
+          # fallback if that pre-install was skipped or failed.
+          npx playwright install chromium
           echo "Running Playwright tests..."
           # Per-workflow comparison targets (PR: dev↔multidev, master: prod↔dev).
           # Exported here so run-playwright picks them up; env vars in the param
@@ -643,25 +649,29 @@ jobs:
         debug: true
         pipeline_id: << pipeline.id >>
         pipeline_number: << pipeline.number >>
-  # Behat — SETUP phase (runs once): Composer install + persist.
-  #
-  # Behat now tests the DEPLOYED env (multidev on PRs, dev on master), so there
-  # is no local Drupal install or DB export here anymore. This job just installs
-  # dependencies once (incl. dev deps for vendor/bin/behat) and hands the built
-  # tree to the parallel behat_test workers via the workspace so they don't each
-  # re-run Composer. Self-skips when the project ships no tests/behat directory.
-  behat_setup:
+  # Shared TEST SETUP (runs once, in parallel with the deploy): installs
+  # everything the test jobs need and hands it to them via the workspace, so the
+  # test jobs stay thin and don't each repeat slow installs/downloads.
+  #   • Behat: `composer install` (incl. dev deps for vendor/bin/behat).
+  #   • Playwright VRT: `npm ci` + the Chromium browser binary, installed into a
+  #     project-local dir (.pw-browsers) so it rides the workspace to the VRT job.
+  #     This is what stops Playwright re-downloading Chromium from the CDN on
+  #     every run (the source of the "Too long with no output" timeouts).
+  # Self-skips only when the project ships NEITHER tests/behat NOR a
+  # visual-regression suite.
+  test_setup:
     executor: pantheon
     resource_class: small
     steps:
     - checkout
     - run:
-        name: Skip if project has no tests/behat
+        name: Skip if project has no tests to set up
         command: |
-          if [ ! -d tests/behat ]; then
-            echo "No tests/behat directory in this project — skipping Behat setup."
+          if [ ! -d tests/behat ] && [ ! -d .ci/test/visual-regression ]; then
+            echo "No tests/behat and no .ci/test/visual-regression — nothing to set up."
             circleci-agent step halt
           fi
+    # --- Behat deps (Composer) ---
     - restore_cache:
         keys:
         - composer-cache-v1-{{ checksum "composer.lock" }}
@@ -669,17 +679,35 @@ jobs:
     - run:
         name: Composer install (includes dev deps for Behat)
         command: |
-          if [ -f composer.json ]; then
+          if [ -d tests/behat ] && [ -f composer.json ]; then
             composer install --no-ansi --no-interaction --optimize-autoloader --no-progress
           else
-            echo "No composer.json found, skipping composer install."
+            echo "No Behat suite or composer.json — skipping composer install."
           fi
     - save_cache:
         key: composer-cache-v1-{{ checksum "composer.lock" }}
         paths:
         - $HOME/.composer/cache
-    # Hand the whole built tree (vendor/, tests/, .ci/, behat.yml) to the
-    # parallel behat_test workers.
+    # --- Playwright deps (npm + Chromium binary) ---
+    # Browsers go in a project-local dir (.pw-browsers) so persist_to_workspace
+    # carries them to the VRT job, which then skips the slow CDN download.
+    # Pre-download is best-effort: if this image's Node is too old to run the
+    # Playwright CLI, the VRT job has a guarded fallback install.
+    - run:
+        name: Install Playwright npm deps + Chromium
+        no_output_timeout: 20m
+        command: |
+          if [ -d .ci/test/visual-regression ]; then
+            export PLAYWRIGHT_BROWSERS_PATH="$PWD/.pw-browsers"
+            cd .ci/test/visual-regression
+            npm ci
+            npx playwright install chromium || \
+              echo "WARN: Chromium pre-download failed here; the VRT job will install it."
+          else
+            echo "No .ci/test/visual-regression — skipping Playwright setup."
+          fi
+    # Hand the whole built tree (vendor/, node_modules/, .pw-browsers/, tests/,
+    # .ci/, behat.yml) to the test jobs.
     - persist_to_workspace:
         root: .
         paths:
@@ -687,16 +715,22 @@ jobs:
 
   # Behat — RUN phase (parallelized): runs the suite against the DEPLOYED env.
   #
-  # Attaches the Composer-built tree from behat_setup, authenticates Terminus
+  # Attaches the Composer-built tree from test_setup, authenticates Terminus
   # (so the Drupal @api driver can create fixtures via remote drush on the
   # Pantheon env), waits for both the target env and the headless-Chrome service
-  # to be ready, then runs its shard of the suite against the target URL. The
-  # target is the multidev on PRs and dev on master, supplied via the
-  # behat_target_url parameter. Self-skips when no tests/behat directory.
+  # to be ready, then runs the suite against the target URL. The target is the
+  # multidev on PRs and dev on master, supplied via the behat_target_url
+  # parameter. Self-skips when no tests/behat directory.
   behat_test:
     executor: behat
     resource_class: medium
-    parallelism: 12
+    # parallelism: 1 (single container) — NOT sharded. The suite now runs
+    # against ONE shared deployed env (multidev/dev), so its @api scenarios all
+    # create fixtures in the SAME Pantheon database. Splitting across parallel
+    # containers would have them race/clobber each other in that one DB (the old
+    # 12-way split was only safe because each node had its own local install +
+    # DB). Run serially against the shared env instead.
+    parallelism: 1
     parameters:
       # Deployed environment the suite runs against. Env vars (e.g.
       # ${MULTIDEV_SITE_URL}/${DEV_SITE_URL}) expand at runtime from $BASH_ENV.
@@ -705,11 +739,11 @@ jobs:
         default: "${MULTIDEV_SITE_URL}"
     steps:
     # Get the project source straight from git (guarantees the project-supplied
-    # behat scripts under .ci/test/behat/ — e.g. run-tests-circle — and the
-    # tests/ tree are present regardless of workspace layering).
+    # behat runner under .ci/test/behat/ — run-tests or run-tests-circle — and
+    # the tests/ tree are present regardless of workspace layering).
     - checkout
     # Overlay the Composer-built artifacts (vendor/, composer-installed web/*)
-    # from behat_setup so the workers don't each re-run Composer.
+    # from test_setup so the workers don't each re-run Composer.
     - attach_workspace:
         at: .
     - run:
@@ -724,19 +758,29 @@ jobs:
     - run:
         name: Verify Behat runner and vendor are present
         command: |
-          ok=1
-          if [ ! -f ./.ci/test/behat/run-tests-circle ]; then
-            echo "ERROR: ./.ci/test/behat/run-tests-circle is missing after checkout."
+          # Accept whichever runner the project ships. Older projects have
+          # `run-tests` (runs the whole suite); newer ones have `run-tests-circle`
+          # (a CircleCI shard runner). At parallelism: 1 both run the full suite
+          # identically — run-tests-circle's NR % CIRCLE_NODE_TOTAL math reduces
+          # to "every file" when CIRCLE_NODE_TOTAL=1 — so either is fine. Prefer
+          # run-tests (no `circleci tests glob` dependency); fall back to
+          # run-tests-circle. The chosen path is exported for the run step.
+          RUNNER=""
+          for c in run-tests run-tests-circle; do
+            if [ -f "./.ci/test/behat/$c" ]; then RUNNER="./.ci/test/behat/$c"; break; fi
+          done
+          if [ -z "$RUNNER" ]; then
+            echo "ERROR: no Behat runner found in ./.ci/test/behat (looked for run-tests, run-tests-circle)."
             ls -la ./.ci/test/behat 2>/dev/null || echo "  (.ci/test/behat does not exist)"
-            ok=0
+            exit 1
           fi
-          if [ ! -x ./vendor/bin/behat ] && [ ! -f ./vendor/bin/behat ]; then
-            echo "ERROR: ./vendor/bin/behat is missing — behat_setup's vendor/ did not arrive via the workspace."
-            ok=0
+          if [ ! -f ./vendor/bin/behat ]; then
+            echo "ERROR: ./vendor/bin/behat is missing — test_setup's vendor/ did not arrive via the workspace."
+            exit 1
           fi
-          [ "$ok" = "1" ] || exit 1
-          chmod +x ./.ci/test/behat/run-tests-circle ./.ci/test/behat/*.sh 2>/dev/null || true
-          echo "Found run-tests-circle and vendor/bin/behat."
+          chmod +x ./.ci/test/behat/* 2>/dev/null || true
+          echo "Using Behat runner: $RUNNER"
+          echo "export BEHAT_RUNNER='$RUNNER'" >> "$BASH_ENV"
     # Authenticate Terminus and recompute the Pantheon site/env + URLs (the same
     # deterministic values build_and_deploy used). Remote drush — used by the
     # Drupal @api driver to create fixtures on the deployed env — needs this.
@@ -804,10 +848,11 @@ jobs:
                 }
               }
             }')"
-          # Invoked via `bash` explicitly: the project runner uses bash arrays
-          # and ships without a shebang, so this avoids exec-bit/interpreter
-          # surprises across images.
-          bash ./.ci/test/behat/run-tests-circle
+          # Invoked via `bash` explicitly: some project runners use bash arrays
+          # and/or ship without a shebang, so this avoids exec-bit/interpreter
+          # surprises across images. BEHAT_RUNNER was resolved (run-tests vs
+          # run-tests-circle) by the verify step above.
+          bash "$BEHAT_RUNNER"
     # store_artifacts/store_test_results run even after a failed step by default,
     # so results/logs land on failure too — no `when` needed.
     - store_artifacts:
@@ -890,10 +935,12 @@ jobs:
 #     run Behat against dev and Playwright (dev vs prod). NOTE: Behat no longer
 #     gates the dev deploy — it can't, since it tests the deployed env.
 #
-# behat_setup only does `composer install` and runs in parallel with the deploy;
-# behat_test requires BOTH the deploy (so the env exists) and behat_setup (for
-# vendor/). The jobs are defined once under `jobs:` and reused with different
-# `requires`, branch filters, and target URLs.
+# test_setup installs the test deps once (composer for Behat; npm + Chromium for
+# Playwright) and runs in parallel with the deploy; behat_test and
+# playwright_visual_tests each require BOTH the deploy (so the env exists) and
+# test_setup (for vendor/ and the pre-staged browser). The jobs are defined once
+# under `jobs:` and reused with different `requires`, branch filters, and target
+# URLs.
 workflows:
   # Feature-branch / PR flow: deploy to the multidev, then test it.
   pr_build_test:
@@ -922,15 +969,18 @@ workflows:
         filters:
           branches:
             ignore: master
+        # Needs the deploy (env to screenshot) and test_setup (npm deps +
+        # pre-staged Chromium in the workspace).
         requires:
         - build_and_deploy
+        - test_setup
         context:
         - SLACK_ACCESS_TOKEN
         - JIRA_WEBHOOK_URL
         # Carries both VRT_USERNAME and VRT_PASSWORD for authenticated routes.
         - VRT_USERNAME
-    # composer install only — runs in parallel with the deploy.
-    - behat_setup:
+    # Shared test setup (composer + playwright deps) — runs in parallel with the deploy.
+    - test_setup:
         filters:
           branches:
             ignore: master
@@ -938,14 +988,14 @@ workflows:
         - GITHUB_TOKEN
         - SLACK_ACCESS_TOKEN
     # Runs the suite against the deployed multidev; needs the deploy (env exists)
-    # and behat_setup (vendor/).
+    # and test_setup (vendor/).
     - behat_test:
         filters:
           branches:
             ignore: master
         requires:
         - build_and_deploy
-        - behat_setup
+        - test_setup
         behat_target_url: "${MULTIDEV_SITE_URL}"
         context:
         - GITHUB_TOKEN
@@ -967,8 +1017,8 @@ workflows:
         context:
         - GITHUB_TOKEN
         - JIRA_WEBHOOK_URL
-    # composer install only — runs in parallel with the deploy.
-    - behat_setup:
+    # Shared test setup (composer + playwright deps) — runs in parallel with the deploy.
+    - test_setup:
         filters:
           branches:
             only: master
@@ -982,7 +1032,7 @@ workflows:
             only: master
         requires:
         - build_and_deploy
-        - behat_setup
+        - test_setup
         behat_target_url: "${DEV_SITE_URL}"
         context:
         - GITHUB_TOKEN
@@ -994,8 +1044,11 @@ workflows:
         filters:
           branches:
             only: master
+        # Needs the deploy (env to screenshot) and test_setup (npm deps +
+        # pre-staged Chromium in the workspace).
         requires:
         - build_and_deploy
+        - test_setup
         vrt_reference_url: "${LIVE_SITE_URL}"
         vrt_target_url: "${DEV_SITE_URL}"
         context:
