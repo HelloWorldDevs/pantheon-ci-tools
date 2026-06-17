@@ -88,6 +88,21 @@ SSHCFG
   chmod 600 "${HOME}/.ssh/config"
 fi
 
+# Ensure terminus is authenticated. The MERGE phase now runs BEFORE the deploy
+# step (dev-multidev.sh) that used to be the first thing to `auth:login`, so the
+# very first terminus call here (config:export from live) would otherwise fail
+# with "not logged in". Idempotent: skip if a session already exists. Needs
+# TERMINUS_TOKEN (a Pantheon machine token) in the job environment/context.
+if ! terminus auth:whoami >/dev/null 2>&1; then
+  if [ -n "${TERMINUS_TOKEN:-}" ]; then
+    echo "==> Authenticating terminus with machine token"
+    terminus -n auth:login --machine-token="${TERMINUS_TOKEN}"
+  else
+    echo "ERROR: terminus is not authenticated and TERMINUS_TOKEN is not set." >&2
+    exit 1
+  fi
+fi
+
 # Decide whether prod diverged from the PR's base for a PR-changed file —
 # i.e. a genuine conflict the dev should reconcile (both sides changed it),
 # as opposed to the dev simply editing a file prod left untouched.
