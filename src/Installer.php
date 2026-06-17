@@ -163,6 +163,13 @@ class Installer
             $sourceBase . '/.ci/test/behat/install-drupal',
             $destBase . '/.ci/test/behat/install-drupal'
         );
+        // Local-dev helper: prints Chrome-for-Testing + `lando behat` setup
+        // instructions on `lando start` (wired into .lando.yml post-start by
+        // InstallConfigSplit). Self-silences when the project has no tests/behat.
+        $this->copyFile(
+            $sourceBase . '/.ci/test/behat/readme.sh',
+            $destBase . '/.ci/test/behat/readme.sh'
+        );
 
         // Copy test files
         $this->copyFile(

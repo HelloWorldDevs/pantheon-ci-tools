@@ -170,7 +170,10 @@ class InstallConfigSplit {
   protected static function postStartEvents() : array {
     return [
       'appserver: echo "🔧 Setting up dev environment..."',
-      'appserver: bash /app/lando/scripts/dev-config.sh enable'
+      'appserver: bash /app/lando/scripts/dev-config.sh enable',
+      // Print local-Behat setup instructions (Chrome for Testing + `lando behat`).
+      // The script self-silences when the project has no tests/behat directory.
+      'appserver: bash /app/.ci/test/behat/readme.sh'
     ];
   }
 
