@@ -32,6 +32,11 @@ class Installer
         // and is tracked (it's commonly gitignored, which breaks CI).
         $this->ensureBehatCiLocalSettings();
 
+        // Wire the Behat readme hint into .lando.yml post-start so `lando start`
+        // prints local-test instructions. Done surgically (append-only) rather
+        // than via the full YAML re-dump, which is intentionally disabled.
+        $this->ensureBehatReadmeLandoEvent();
+
         if ($this->isDrupalProject()) {
             $configSplitInstaller = new InstallConfigSplit($this->io, $this->findProjectRoot());
             $configSplitInstaller->install();
@@ -305,6 +310,81 @@ class Installer
         }
 
         $this->ensurePathTracked($root, $relPath);
+    }
+
+    /**
+     * Ensure .lando.yml runs the Behat readme hint on `lando start`.
+     *
+     * The full Lando YAML rewrite (InstallConfigSplit::modifyLandoFile) is
+     * intentionally disabled because re-dumping the file drops comments and
+     * needs fragile quote post-processing. This does a minimal, idempotent,
+     * append-only edit: it inserts a single `appserver` item under the existing
+     * `post-start:` block, preserving the rest of the file verbatim.
+     *
+     * No-op when: the project has no tests/behat, there's no .lando.yml, the
+     * event is already wired, or there's no post-start block to extend.
+     *
+     * @return void
+     */
+    protected function ensureBehatReadmeLandoEvent()
+    {
+        $root = $this->findProjectRoot();
+
+        // Only wire the hint for projects that actually ship Behat tests.
+        if (!is_dir($root . '/tests/behat')) {
+            return;
+        }
+
+        $landoFile = $root . '/.lando.yml';
+        if (!is_file($landoFile)) {
+            return;
+        }
+
+        $contents = (string) file_get_contents($landoFile);
+        $marker = '.ci/test/behat/readme.sh';
+        if (strpos($contents, $marker) !== false) {
+            return; // Already wired.
+        }
+
+        $lines = explode("\n", $contents);
+        $insertIdx = null;
+        $itemIndent = null;
+
+        foreach ($lines as $i => $line) {
+            if (preg_match('/^(\s*)post-start:\s*$/', $line, $m)) {
+                $keyIndent = $m[1];
+                // Match the indentation of the existing first list item, if any
+                // (YAML allows items at the key's indent or deeper); default to
+                // the key's indent.
+                $itemIndent = $keyIndent;
+                for ($j = $i + 1; $j < count($lines); $j++) {
+                    if (trim($lines[$j]) === '') {
+                        continue;
+                    }
+                    if (preg_match('/^(\s*)-\s/', $lines[$j], $mm)) {
+                        $itemIndent = $mm[1];
+                    }
+                    break;
+                }
+                $insertIdx = $i + 1;
+                break;
+            }
+        }
+
+        if ($insertIdx === null) {
+            $this->io->write('  - Note: no post-start block in .lando.yml; skipped wiring the Behat readme hint.');
+            return;
+        }
+
+        $newLine = $itemIndent . '- appserver: bash /app/.ci/test/behat/readme.sh';
+        array_splice($lines, $insertIdx, 0, [$newLine]);
+
+        if (file_put_contents($landoFile, implode("\n", $lines)) === false) {
+            $this->io->writeError('  - Error: failed to wire the Behat readme hint into .lando.yml');
+            return;
+        }
+
+        $this->io->write('  - Wired the Behat readme hint into .lando.yml post-start');
     }
 
     /**
