@@ -27,9 +27,16 @@ jobs:
           # tests/behat, but parallelism is fixed at JOB-DEFINITION time — so a
           # static config still provisions all 12 boxes before any step runs.
           # Decide the count HERE, where we can see the repo, and pass it through.
+          #
+          # The runner (run-tests-circle) shards by TOP-LEVEL feature file, so
+          # set parallelism to the feature-file count (1..12). This avoids
+          # spinning 12 boxes for a 2-feature suite where 10 would sit idle.
           if [ -d tests/behat ]; then
-            echo "Behat tests found — using full parallelism (12)."
-            BEHAT_PARALLELISM=12
+            COUNT=$(ls tests/behat/features/*.feature 2>/dev/null | wc -l | tr -d ' ')
+            if [ "${COUNT}" -lt 1 ]; then COUNT=1; fi
+            if [ "${COUNT}" -gt 12 ]; then COUNT=12; fi
+            echo "Behat tests found (${COUNT} feature file(s)) — parallelism ${COUNT}."
+            BEHAT_PARALLELISM=${COUNT}
           else
             echo "No tests/behat — behat_test will run on a single box."
             BEHAT_PARALLELISM=1

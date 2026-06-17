@@ -3,21 +3,30 @@
 # Sync Drupal config from the Pantheon live environment into the repo's
 # config/sync/, preserving any config files modified in the current PR.
 #
-# Behavior:
-#   - Exports config from $TERMINUS_SITE.live and downloads it.
-#   - Detects config/sync/ files changed in the PR (vs the base branch).
-#   - For every file from prod: write it to config/sync/ UNLESS the file
-#     is in the PR-changed list (in which case the PR version wins).
-#   - Files that exist only in the repo are left alone (never deleted).
-#   - Flags conflicts: a PR-changed file where prod ALSO diverged from the
-#     base. By default this BLOCKS the deploy (exit 1) before any commit/
-#     push/import, so a divergent prod change can't be silently dropped.
-#     The report is still written first so the PR/Jira comment shows what to
-#     reconcile. Set CONFIG_CONFLICT_FAIL=false to downgrade to a warning.
-#   - Commits the resulting config/sync/ changes, then pushes the merged
-#     config to the multidev and runs `drush config:import`.
-#   - Writes a markdown summary of applied/added/protected files to
-#     $CONFIG_SYNC_REPORT for downstream PR/Jira commenting.
+# Runs in one of three MODES (first positional arg, default "all"):
+#
+#   merge   Phase 1 — runs BEFORE the Pantheon deploy. Exports prod config,
+#           merges it into config/sync/ (PR-modified files win), writes the
+#           report, and hard-stops on conflicts / failed safety checks. Leaves
+#           the merged files in the working tree UNCOMMITTED — the deploy's
+#           "Preparing code" step stages+commits them, so the pushed artifact
+#           already contains the merged config. Does NOT push or import.
+#
+#   import  Phase 2 — runs AFTER the deploy, against the freshly-deployed
+#           multidev. Pre-uninstalls modules that were removed from config,
+#           runs `drush config:import`, and rebuilds caches. Self-contained:
+#           it operates on the deployed env and needs no local merge state.
+#
+#   all     Manual/local path (default) — does merge, then commits + pushes the
+#           merged config to the env, then imports. Use this when running the
+#           script by hand against an existing multidev with no separate CI
+#           deploy step around it.
+#
+# Why split merge/import: config:import on the env reads the DEPLOYED code's
+# config_sync_directory (typically ../config/sync). If the merge runs AFTER the
+# deploy, that directory still holds the branch's pre-merge config and prod
+# drift is never imported. Merging BEFORE the deploy puts the merged result into
+# the artifact the deploy pushes, so import just works — no re-push needed.
 #
 # Required env vars:
 #   TERMINUS_SITE, TERMINUS_ENV
@@ -42,6 +51,12 @@
 
 set -euo pipefail
 
+MODE="${1:-all}"
+case "${MODE}" in
+  all|merge|import) ;;
+  *) echo "Usage: $0 [all|merge|import]" >&2; exit 2 ;;
+esac
+
 BASE_BRANCH="${CONFIG_BASE_BRANCH:-main}"
 SYNC_DIR="${CONFIG_SYNC_DIR:-config/sync}"
 REPORT_FILE="${CONFIG_SYNC_REPORT:-/tmp/config-sync-report.md}"
@@ -60,7 +75,7 @@ trap 'rm -rf "$PROD_TMP"' EXIT
 # known_hosts and REJECTS a subsequent key change — i.e. it still protects
 # against MITM/key-swap, unlike `StrictHostKeyChecking no` + UserKnownHostsFile
 # /dev/null, which silently accept whatever key is presented every time.
-# Idempotent.
+# Idempotent. Needed by both phases (rsync from live; drush to the env).
 mkdir -p "${HOME}/.ssh"
 chmod 700 "${HOME}/.ssh"
 if ! grep -qs 'drush\.in' "${HOME}/.ssh/config"; then
@@ -111,6 +126,49 @@ prod_conflicts_with_pr() {
   return $rc
 }
 
+# ── Phase 2 (import) helper ──────────────────────────────────────────────────
+# Runs entirely against the deployed env. Pre-uninstall modules removed from
+# config, then config:import, then cache:rebuild.
+run_import() {
+  # Pre-uninstall modules that are enabled on the (often REUSED) multidev but no
+  # longer present in the config to be imported. Drupal's config:import frequently
+  # can't uninstall a module AND delete that module's config in a single pass — it
+  # fails validation with "<config> depends on the <module> that will not be
+  # installed after import" and CANNOT self-heal, so every re-run keeps failing.
+  # `pm:uninstall` cleanly removes the module and its config first, making the
+  # subsequent import conflict-free. Computed against the env's own sync storage
+  # (config.storage.sync = the dir config:import actually reads), and the install
+  # profile is excluded so we never try to uninstall it. Safety: if sync's
+  # core.extension can't be read (empty), we skip rather than risk uninstalling
+  # everything.
+  echo "==> Reconciling modules removed from config on ${TERMINUS_SITE}.${TERMINUS_ENV}"
+  local TO_UNINSTALL
+  TO_UNINSTALL="$(terminus drush "${TERMINUS_SITE}.${TERMINUS_ENV}" -- ev '$sync = \Drupal::service("config.storage.sync"); $ext = $sync->read("core.extension"); if (is_array($ext) && !empty($ext["module"])) { $active = array_keys(\Drupal::config("core.extension")->get("module")); $remove = array_diff($active, array_keys($ext["module"])); $remove = array_diff($remove, [(string) \Drupal::installProfile()]); echo implode(" ", $remove); }' 2>/dev/null || true)"
+  TO_UNINSTALL="$(printf '%s' "${TO_UNINSTALL}" | tr -d '\r' | xargs || true)"
+  if [ -n "${TO_UNINSTALL}" ]; then
+    echo "    Enabled on env but removed from config — uninstalling first: ${TO_UNINSTALL}"
+    terminus drush "${TERMINUS_SITE}.${TERMINUS_ENV}" -- pm:uninstall ${TO_UNINSTALL} -y \
+      || echo "    (pm:uninstall reported issues; continuing — config:import will surface anything unresolved)"
+  else
+    echo "    No enabled modules need removing ahead of import."
+  fi
+
+  echo "==> Importing config on ${TERMINUS_SITE}.${TERMINUS_ENV}"
+  terminus drush "${TERMINUS_SITE}.${TERMINUS_ENV}" -- config:import -y
+
+  echo "==> Rebuilding caches"
+  terminus drush "${TERMINUS_SITE}.${TERMINUS_ENV}" -- cache:rebuild
+
+  echo "==> Config import complete."
+}
+
+# ── import-only mode: nothing local to do, just apply on the env ─────────────
+if [ "${MODE}" = "import" ]; then
+  run_import
+  exit 0
+fi
+
+# ── merge (and the merge part of "all") ──────────────────────────────────────
 echo "==> Exporting config from ${TERMINUS_SITE}.live"
 terminus drush "${TERMINUS_SITE}.live" -- \
   config:export --destination=/files/private/config-export -y
@@ -236,14 +294,14 @@ echo "==> Writing sync report to ${REPORT_FILE}"
   fi
 } > "${REPORT_FILE}"
 
-# Hard-stop on conflicts (a file changed in both this PR and prod) BEFORE we
-# commit/push/import, so a divergent prod change can't be silently dropped.
-# The report (written above) still gets posted to the PR/Jira by the later
-# `when: always` steps, so the dev sees exactly what to reconcile.
+# Hard-stop on conflicts (a file changed in both this PR and prod) BEFORE the
+# deploy, so a divergent prod change can't be silently dropped. The report
+# (written above) still gets posted to the PR/Jira by the later `when: always`
+# steps, so the dev sees exactly what to reconcile.
 # Set CONFIG_CONFLICT_FAIL=false to downgrade to a warning (legacy behavior).
 CONFLICT_FAIL="${CONFIG_CONFLICT_FAIL:-true}"
 if [ "${#CONFLICT_REL[@]}" -gt 0 ] && [ "${CONFLICT_FAIL}" != "false" ]; then
-  echo "❌ ${#CONFLICT_REL[@]} config file(s) changed in BOTH this PR and prod — blocking deploy before multidev import:" >&2
+  echo "❌ ${#CONFLICT_REL[@]} config file(s) changed in BOTH this PR and prod — blocking deploy:" >&2
   for f in "${CONFLICT_REL[@]}"; do echo "     - ${f}" >&2; done
 
   RESOLVE_BRANCH="${CIRCLE_BRANCH:-your-branch}"
@@ -258,7 +316,7 @@ if [ "${#CONFLICT_REL[@]}" -gt 0 ] && [ "${CONFLICT_FAIL}" != "false" ]; then
     echo
     echo "**⛔ Deploy blocked — reconcile prod drift before merging**"
     echo
-    echo "The file(s) above changed on ${TERMINUS_SITE}.live since ${BASE_BRANCH} and also in this PR. Applying prod's version would discard your edits (and vice-versa), so the deploy is stopped before any import."
+    echo "The file(s) above changed on ${TERMINUS_SITE}.live since ${BASE_BRANCH} and also in this PR. Applying prod's version would discard your edits (and vice-versa), so the deploy is stopped before any push or import."
     echo
     echo "**How to resolve**"
     echo
@@ -290,38 +348,32 @@ if [ -f "${SAFETY_CHECK}" ]; then
   # Invoke explicitly via bash so we don't depend on the executable bit
   # and so the script always runs under bash regardless of how it's called.
   if ! bash "${SAFETY_CHECK}"; then
-    echo "❌ Config safety check failed. Aborting sync before push to multidev." >&2
-    echo "_⚠️ Config safety check failed — sync aborted before multidev push._" >> "${REPORT_FILE}"
+    echo "❌ Config safety check failed. Aborting before deploy." >&2
+    echo "_⚠️ Config safety check failed — sync aborted before deploy._" >> "${REPORT_FILE}"
     exit 1
   fi
 else
   echo "    config-safety-check.sh not present at ${SAFETY_CHECK} — skipping."
 fi
 
+# In "merge" mode we stop here: the merged files sit in the working tree and the
+# deploy's "Preparing code" step stages+commits them, so the pushed artifact
+# already contains the merged config. Phase 2 (import mode) applies it on the
+# env after the deploy.
+if [ "${MODE}" = "merge" ]; then
+  echo "==> Merge complete (files left staged in working tree for the deploy)."
+  exit 0
+fi
+
+# ── "all" mode only: commit, push, then import (manual/local path) ───────────
 echo "==> Committing merged config (if changed)"
-CONFIG_CHANGED=0
 git add "${SYNC_DIR}"
 if git diff --cached --quiet; then
   echo "    No config changes to commit."
 else
   git commit -m "Sync config from ${TERMINUS_SITE}.live (PR-modified files preserved)"
-  CONFIG_CHANGED=1
-fi
-
-# Re-push the merged commit to the multidev so config:import reads it.
-#
-# The initial "Deploying to Pantheon" (build:env:push) ran BEFORE this merge, so
-# the artifact it deployed has the branch's pre-merge config/sync. config:import
-# reads the deployed code's config_sync_directory (typically ../config/sync) —
-# NOT the files/config-sync upload below — so without re-pushing, the prod merge
-# would never actually be imported. Re-pushing the merged commit updates the
-# deployed config/sync to the merged result before we import. Skipped when the
-# merge produced no changes (nothing new to deploy).
-if [ "${CONFIG_CHANGED}" -eq 1 ]; then
-  echo "==> Re-pushing merged config to ${TERMINUS_SITE}.${TERMINUS_ENV}"
+  echo "==> Pushing merged config to ${TERMINUS_SITE}.${TERMINUS_ENV}"
   terminus -n build:env:push "${TERMINUS_SITE}.${TERMINUS_ENV}" --yes
-else
-  echo "==> No merged changes to re-push."
 fi
 
 # Also mirror to files/config-sync for projects whose config_sync_directory
@@ -329,32 +381,4 @@ fi
 echo "==> Uploading merged config to ${TERMINUS_SITE}.${TERMINUS_ENV}"
 terminus rsync "./${SYNC_DIR}/" "${TERMINUS_SITE}.${TERMINUS_ENV}":files/config-sync/
 
-# Pre-uninstall modules that are enabled on the (often REUSED) multidev but no
-# longer present in the config to be imported. Drupal's config:import frequently
-# can't uninstall a module AND delete that module's config in a single pass — it
-# fails validation with "<config> depends on the <module> that will not be
-# installed after import" and CANNOT self-heal, so every re-run keeps failing.
-# `pm:uninstall` cleanly removes the module and its config first, making the
-# subsequent import conflict-free. Computed against the env's own sync storage
-# (config.storage.sync = the dir config:import actually reads), and the install
-# profile is excluded so we never try to uninstall it. Safety: if sync's
-# core.extension can't be read (empty), we skip rather than risk uninstalling
-# everything.
-echo "==> Reconciling modules removed from config on ${TERMINUS_SITE}.${TERMINUS_ENV}"
-TO_UNINSTALL="$(terminus drush "${TERMINUS_SITE}.${TERMINUS_ENV}" -- ev '$sync = \Drupal::service("config.storage.sync"); $ext = $sync->read("core.extension"); if (is_array($ext) && !empty($ext["module"])) { $active = array_keys(\Drupal::config("core.extension")->get("module")); $remove = array_diff($active, array_keys($ext["module"])); $remove = array_diff($remove, [(string) \Drupal::installProfile()]); echo implode(" ", $remove); }' 2>/dev/null || true)"
-TO_UNINSTALL="$(printf '%s' "${TO_UNINSTALL}" | tr -d '\r' | xargs || true)"
-if [ -n "${TO_UNINSTALL}" ]; then
-  echo "    Enabled on env but removed from config — uninstalling first: ${TO_UNINSTALL}"
-  terminus drush "${TERMINUS_SITE}.${TERMINUS_ENV}" -- pm:uninstall ${TO_UNINSTALL} -y \
-    || echo "    (pm:uninstall reported issues; continuing — config:import will surface anything unresolved)"
-else
-  echo "    No enabled modules need removing ahead of import."
-fi
-
-echo "==> Importing config on ${TERMINUS_SITE}.${TERMINUS_ENV}"
-terminus drush "${TERMINUS_SITE}.${TERMINUS_ENV}" -- config:import -y
-
-echo "==> Rebuilding caches"
-terminus drush "${TERMINUS_SITE}.${TERMINUS_ENV}" -- cache:rebuild
-
-echo "==> Config sync complete."
+run_import
