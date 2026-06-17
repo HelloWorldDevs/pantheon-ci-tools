@@ -91,16 +91,20 @@ fi
 # Ensure terminus is authenticated. The MERGE phase now runs BEFORE the deploy
 # step (dev-multidev.sh) that used to be the first thing to `auth:login`, so the
 # very first terminus call here (config:export from live) would otherwise fail
-# with "not logged in". Idempotent: skip if a session already exists. Needs
-# TERMINUS_TOKEN (a Pantheon machine token) in the job environment/context.
-if ! terminus auth:whoami >/dev/null 2>&1; then
-  if [ -n "${TERMINUS_TOKEN:-}" ]; then
-    echo "==> Authenticating terminus with machine token"
-    terminus -n auth:login --machine-token="${TERMINUS_TOKEN}"
-  else
-    echo "ERROR: terminus is not authenticated and TERMINUS_TOKEN is not set." >&2
-    exit 1
-  fi
+# with "You are not logged in."
+#
+# Do NOT guard on `terminus auth:whoami`: it exits 0 even when logged OUT (it
+# just prints an empty identity), so a `whoami`-guard silently skips the login
+# and the export then fails unauthenticated. Instead just log in when a token is
+# present — `auth:login` is idempotent — exactly like dev-multidev.sh and
+# check-multidev-capacity.sh do. Needs TERMINUS_TOKEN (a Pantheon machine token)
+# in the job environment/context.
+if [ -n "${TERMINUS_TOKEN:-}" ]; then
+  echo "==> Authenticating terminus with machine token"
+  terminus -n auth:login --machine-token="${TERMINUS_TOKEN}"
+elif ! terminus auth:whoami >/dev/null 2>&1; then
+  echo "ERROR: terminus is not authenticated and TERMINUS_TOKEN is not set." >&2
+  exit 1
 fi
 
 # Decide whether prod diverged from the PR's base for a PR-changed file —
