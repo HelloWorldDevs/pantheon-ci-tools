@@ -175,6 +175,14 @@ class Installer
             $sourceBase . '/.ci/test/behat/readme.sh',
             $destBase . '/.ci/test/behat/readme.sh'
         );
+        // Launches headless Chrome on :9515 in CI for Behat's DMore Chrome
+        // driver. The behat_test job runs it (if present) right before the Behat
+        // runner. Its baked-in Chrome path matches the tool's behat executor
+        // image (helloworlddevs/atdove-testing-image) — same as atdove uses.
+        $this->copyFile(
+            $sourceBase . '/.ci/test/behat/chrome.sh',
+            $destBase . '/.ci/test/behat/chrome.sh'
+        );
 
         // Copy test files
         $this->copyFile(

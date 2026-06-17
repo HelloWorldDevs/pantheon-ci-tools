@@ -64,6 +64,10 @@ executors:
     environment:
       TZ: "/usr/share/zoneinfo/America/Los_Angeles"
       ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: admin
+      # Headless Chromium (for @javascript scenarios) warns and can misbehave
+      # when XDG_RUNTIME_DIR is unset. Give it a writable runtime dir.
+      XDG_RUNTIME_DIR: /tmp/runtime-dir
 
 defaults: &defaults
   executor: pantheon

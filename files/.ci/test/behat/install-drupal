@@ -27,6 +27,12 @@ set -eo pipefail
 
 DRUSH="./vendor/bin/drush"
 
+# Admin account for the fresh install, so Behat scenarios that log in as the
+# administrator have known, fixed credentials. Overridable via the executor env
+# (ADMIN_USERNAME / ADMIN_PASSWORD), with sane defaults.
+ACCOUNT_NAME="${ADMIN_USERNAME:-admin}"
+ACCOUNT_PASS="${ADMIN_PASSWORD:-admin}"
+
 SYNC_DIR="${CONFIG_SYNC_DIR:-config/sync}"
 CORE_EXT="${SYNC_DIR}/core.extension.yml"
 SITE_YML="${SYNC_DIR}/system.site.yml"
@@ -39,10 +45,10 @@ fi
 
 if [ -n "$PROFILE" ]; then
   echo "Installing Drupal with profile: ${PROFILE}"
-  $DRUSH -y site:install "$PROFILE"
+  $DRUSH -y site:install "$PROFILE" --account-name="$ACCOUNT_NAME" --account-pass="$ACCOUNT_PASS"
 else
   echo "No profile detected in ${CORE_EXT}; installing default profile."
-  $DRUSH -y site:install
+  $DRUSH -y site:install --account-name="$ACCOUNT_NAME" --account-pass="$ACCOUNT_PASS"
 fi
 
 # If the project ships exported config, import it on top of the fresh install.
@@ -83,6 +89,19 @@ if [ -f "$CORE_EXT" ]; then
     echo "ERROR: config:import did not converge after 5 attempts." >&2
     exit 1
   fi
+fi
+
+# Enable CI-only test-content modules. Convention: any discovered module whose
+# machine name ends in `_test_content`. Their hook_install() seeds test fixtures
+# (path aliases, nodes, etc.) so feature tests don't 404 on content-only public
+# URLs. They are deliberately NOT in exported config, so prod never enables
+# them — CI opts in here by convention. Works regardless of where the module
+# lives (profile or modules/custom), so it survives the profile removal.
+TEST_CONTENT_MODULES="$($DRUSH pm:list --type=module --status=disabled --format=list 2>/dev/null | grep -E '_test_content$' || true)"
+if [ -n "$TEST_CONTENT_MODULES" ]; then
+  echo "Enabling CI-only test-content modules: $TEST_CONTENT_MODULES"
+  # shellcheck disable=SC2086
+  $DRUSH -y en $TEST_CONTENT_MODULES
 fi
 
 echo "Running DB Updates"
