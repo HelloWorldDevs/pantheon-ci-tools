@@ -102,9 +102,16 @@ fi
 if [ -n "${TERMINUS_TOKEN:-}" ]; then
   echo "==> Authenticating terminus with machine token"
   terminus -n auth:login --machine-token="${TERMINUS_TOKEN}"
-elif ! terminus auth:whoami >/dev/null 2>&1; then
-  echo "ERROR: terminus is not authenticated and TERMINUS_TOKEN is not set." >&2
-  exit 1
+else
+  # No token: fall back to an existing session, but VERIFY one really exists.
+  # `auth:whoami` exits 0 even when logged out (it just prints an empty
+  # identity), so validate the OUTPUT, not the exit code.
+  WHOAMI="$(terminus auth:whoami 2>/dev/null || true)"
+  if [ -z "${WHOAMI}" ]; then
+    echo "ERROR: terminus is not authenticated and TERMINUS_TOKEN is not set." >&2
+    exit 1
+  fi
+  echo "==> Using existing terminus session: ${WHOAMI}"
 fi
 
 # Decide whether prod diverged from the PR's base for a PR-changed file —

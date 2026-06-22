@@ -32,7 +32,10 @@ jobs:
           # set parallelism to the feature-file count (1..12). This avoids
           # spinning 12 boxes for a 2-feature suite where 10 would sit idle.
           if [ -d tests/behat ]; then
-            COUNT=$(ls tests/behat/features/*.feature 2>/dev/null | wc -l | tr -d ' ')
+            # Use find, not `ls *.feature | wc -l`: with no matches `ls` exits
+            # non-zero and CircleCI's default `bash -eo pipefail` would abort the
+            # whole setup job (no continuation → no pipeline). `find` exits 0.
+            COUNT=$(find tests/behat/features -maxdepth 1 -name '*.feature' 2>/dev/null | wc -l | tr -d ' ')
             if [ "${COUNT}" -lt 1 ]; then COUNT=1; fi
             if [ "${COUNT}" -gt 12 ]; then COUNT=12; fi
             echo "Behat tests found (${COUNT} feature file(s)) — parallelism ${COUNT}."

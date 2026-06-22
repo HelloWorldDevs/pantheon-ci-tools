@@ -15,7 +15,7 @@ chmod 700 $XDG_RUNTIME_DIR
 # Start Google Chrome
 echo "Starting Google Chrome..."
 
-nohup /chrome/linux-128.0.6613.84/chrome-linux64/chrome /chrome/linux-128.0.6613.84/chrome-linux64/chrome --ignore-certificate-errors --ignore-ssl-errors --remote-debugging-address=0.0.0.0 --remote-debugging-port=9515 --whitelisted-ips '--allowed-origins=*' --disable-web-security --user-data-dir=/tmp/chrome_dev_test --disable-site-isolation-trials --headless --disable-gpu --proxy-server='direct://' '--proxy-bypass-list=*' --user-agent=Chrome/110.0.5481.77 --disable-software-rasterizer --disable-dev-shm-usage --no-zygote --no-sandbox --window-size=1920,1080 >/tmp/chrome.log 2>&1 &
+nohup /chrome/linux-128.0.6613.84/chrome-linux64/chrome --ignore-certificate-errors --ignore-ssl-errors --remote-debugging-address=0.0.0.0 --remote-debugging-port=9515 --whitelisted-ips '--allowed-origins=*' --disable-web-security --user-data-dir=/tmp/chrome_dev_test --disable-site-isolation-trials --headless --disable-gpu --proxy-server='direct://' '--proxy-bypass-list=*' --user-agent=Chrome/110.0.5481.77 --disable-software-rasterizer --disable-dev-shm-usage --no-zygote --no-sandbox --window-size=1920,1080 >/tmp/chrome.log 2>&1 &
 # Wait for Chrome to start
 sleep 5
 
