@@ -91,6 +91,17 @@ if [ -f "$CORE_EXT" ]; then
   fi
 fi
 
+# The forum module's install seeds default content — a "General discussion" term
+# in the "forums" vocabulary (and sometimes a sample forum node) — that leaves
+# stray fixtures and can break tests asserting a clean state. Remove it when
+# forum is enabled. Guarded + non-fatal so it no-ops on sites without forum.
+if $DRUSH pm:list --type=module --status=enabled --format=list 2>/dev/null | grep -qx forum; then
+  echo "Removing default forum content (General discussion)..."
+  $DRUSH -y entity:delete node --bundle=forum 2>/dev/null || true
+  $DRUSH -y entity:delete taxonomy_term --bundle=forums 2>/dev/null || true
+  $DRUSH cr
+fi
+
 # Enable CI-only content modules. Convention: any discovered module whose machine
 # name ends in `_test_content`, `_custom_content`, `_default_content`, or
 # `_user_content`. Their hook_install() seeds fixtures (path aliases, nodes,
@@ -107,6 +118,12 @@ fi
 
 echo "Running DB Updates"
 $DRUSH updb -y;
+
+# Rebuild node access grants so node-access modules (group, content_access, etc.)
+# grant correct visibility to anonymous/test users after a fresh install.
+# Non-fatal: a harmless no-op on sites without node access modules.
+echo "Rebuilding node access grants..."
+$DRUSH -y php:eval 'node_access_rebuild();' 2>/dev/null || true
 
 echo "Clearing caches..."
 $DRUSH cr;
