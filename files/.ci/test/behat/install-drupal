@@ -66,6 +66,19 @@ if [ -f "$CORE_EXT" ]; then
   # imported config on some profiles. Drop it if shortcut is enabled. Non-fatal.
   $DRUSH -y ev 'if (\Drupal::moduleHandler()->moduleExists("shortcut")) { $s = \Drupal::entityTypeManager()->getStorage("shortcut_set")->load("default"); if ($s) { $s->delete(); } }' || true
 
+  # The install profile can create forum content — a "General discussion" term in
+  # the "forums" vocabulary (and sometimes a sample forum node). When the exported
+  # config REMOVES the forum vocabulary/type, config:import refuses to run while
+  # those content entities still exist ("Entities exist of type Taxonomy term and
+  # Vocabulary Forums ... need to be deleted before importing"). Delete them
+  # BEFORE the import. Unguarded but non-fatal (each command is `|| true`), so it
+  # always runs the cleanup on sites that have forum and harmlessly no-ops on
+  # those that don't (entity:delete just errors out, suppressed).
+  echo "Removing any installer-created forum content before config import..."
+  $DRUSH -y entity:delete node --bundle=forum 2>/dev/null || true
+  $DRUSH -y entity:delete taxonomy_term --bundle=forums 2>/dev/null || true
+  $DRUSH cr || true
+
   # config:import can need several passes on a fresh install. The first pass
   # installs the modules listed in core.extension, and some module install hooks
   # query field tables (e.g. comment__comment_body) that aren't created until
@@ -89,17 +102,6 @@ if [ -f "$CORE_EXT" ]; then
     echo "ERROR: config:import did not converge after 5 attempts." >&2
     exit 1
   fi
-fi
-
-# The forum module's install seeds default content — a "General discussion" term
-# in the "forums" vocabulary (and sometimes a sample forum node) — that leaves
-# stray fixtures and can break tests asserting a clean state. Remove it when
-# forum is enabled. Guarded + non-fatal so it no-ops on sites without forum.
-if $DRUSH pm:list --type=module --status=enabled --format=list 2>/dev/null | grep -qx forum; then
-  echo "Removing default forum content (General discussion)..."
-  $DRUSH -y entity:delete node --bundle=forum 2>/dev/null || true
-  $DRUSH -y entity:delete taxonomy_term --bundle=forums 2>/dev/null || true
-  $DRUSH cr
 fi
 
 # Enable CI-only content modules. Convention: any discovered module whose machine
