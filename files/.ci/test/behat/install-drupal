@@ -121,6 +121,12 @@ fi
 echo "Running DB Updates"
 $DRUSH updb -y;
 
+# Apply pending entity/field schema updates. `upe` (entity:updates) was removed in
+# newer Drush (Drupal 10+), so this is non-fatal: it runs where the command exists
+# and harmlessly no-ops ("command not found") where it doesn't.
+echo "Applying entity schema updates"
+$DRUSH -y upe --all || true
+
 # Rebuild node access grants so node-access modules (group, content_access, etc.)
 # grant correct visibility to anonymous/test users after a fresh install.
 # Non-fatal: a harmless no-op on sites without node access modules.
