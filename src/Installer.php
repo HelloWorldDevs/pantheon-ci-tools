@@ -152,18 +152,25 @@ class Installer
             $sourceBase . '/scripts/check-multidev-capacity.sh',
             $destBase . '/.ci/scripts/check-multidev-capacity.sh'
         );
-        // Behat: the behat_setup/behat_test jobs in config.yml self-skip
+        // Behat: the behat_setup/behat_test jobs in continue_config.yml self-skip
         // (circleci-agent step halt) unless the project ships a tests/behat
-        // directory. We DO ship a canonical install-drupal because the install
-        // step is standardizable and the old per-project copies were subtly
-        // broken (installing a generic profile then config-import, which fails
-        // and loops forever on sites with a custom install profile). It
-        // auto-detects the profile, installs THAT profile by name, then imports
-        // the exported config on top (works even for profiles with a
-        // hook_install(), which Drupal won't install from config). The
-        // remaining behat scripts (configure-site, run-tests/run-tests-circle,
-        // chrome.sh) stay PROJECT-SUPPLIED — they're inherently project-specific
-        // (theme build, file ownership, enabled modules, test globbing).
+        // directory.
+        //
+        // Tool-shipped (always overwritten — these are standardizable):
+        //   - install-drupal: auto-detects the install profile, installs THAT
+        //     profile by name, then imports the exported config on top (works
+        //     even for profiles with a hook_install(), which Drupal won't install
+        //     from config). The old per-project copies installed a generic
+        //     profile then config-import, which fails and loops forever on sites
+        //     with a custom install profile.
+        //   - readme.sh: local `lando behat` setup hint.
+        //   - chrome.sh: launches headless Chrome on :9515 for the DMore driver.
+        //   - run-tests-circle: the sharded CI runner (also enables CI-only
+        //     content modules by the *_test_content/_custom_content/_default_content
+        //     /_user_content convention).
+        //
+        // Still PROJECT-SUPPLIED (inherently project-specific): configure-site
+        // (theme build, file ownership) and run-tests (non-sharded fallback).
         $this->copyFile(
             $sourceBase . '/.ci/test/behat/install-drupal',
             $destBase . '/.ci/test/behat/install-drupal'
@@ -182,6 +189,13 @@ class Installer
         $this->copyFile(
             $sourceBase . '/.ci/test/behat/chrome.sh',
             $destBase . '/.ci/test/behat/chrome.sh'
+        );
+        // Canonical sharded CI runner — always shipped (overwritten) so every
+        // project gets the same parallel sharding + CI-content-module enabling.
+        // The behat_test job prefers run-tests-circle over run-tests.
+        $this->copyFile(
+            $sourceBase . '/.ci/test/behat/run-tests-circle',
+            $destBase . '/.ci/test/behat/run-tests-circle'
         );
 
         // Copy test files

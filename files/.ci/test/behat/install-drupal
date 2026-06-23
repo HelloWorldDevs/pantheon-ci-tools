@@ -91,17 +91,18 @@ if [ -f "$CORE_EXT" ]; then
   fi
 fi
 
-# Enable CI-only test-content modules. Convention: any discovered module whose
-# machine name ends in `_test_content`. Their hook_install() seeds test fixtures
-# (path aliases, nodes, etc.) so feature tests don't 404 on content-only public
-# URLs. They are deliberately NOT in exported config, so prod never enables
-# them — CI opts in here by convention. Works regardless of where the module
-# lives (profile or modules/custom), so it survives the profile removal.
-TEST_CONTENT_MODULES="$($DRUSH pm:list --type=module --status=disabled --format=list 2>/dev/null | grep -E '_test_content$' || true)"
-if [ -n "$TEST_CONTENT_MODULES" ]; then
-  echo "Enabling CI-only test-content modules: $TEST_CONTENT_MODULES"
+# Enable CI-only content modules. Convention: any discovered module whose machine
+# name ends in `_test_content`, `_custom_content`, `_default_content`, or
+# `_user_content`. Their hook_install() seeds fixtures (path aliases, nodes,
+# users, etc.) so feature tests don't 404 on content-only public URLs. They are
+# deliberately NOT in exported config, so prod never enables them — CI opts in
+# here by convention. Works regardless of where the module lives (profile or
+# modules/custom), so it survives the profile removal.
+CI_CONTENT_MODULES="$($DRUSH pm:list --type=module --status=disabled --format=list 2>/dev/null | grep -E '_(test|custom|default|user)_content$' || true)"
+if [ -n "$CI_CONTENT_MODULES" ]; then
+  echo "Enabling CI-only content modules: $CI_CONTENT_MODULES"
   # shellcheck disable=SC2086
-  $DRUSH -y en $TEST_CONTENT_MODULES
+  $DRUSH -y en $CI_CONTENT_MODULES
 fi
 
 echo "Running DB Updates"

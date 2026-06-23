@@ -1,0 +1,98 @@
+#!/bin/bash
+
+# Sharded Behat runner for CircleCI parallelism (mirrors atdove's runner).
+# Splits feature FILES across the parallel containers so each node runs only
+# its slice instead of the whole suite. continue_config.yml's behat_test prefers
+# this script over run-tests.
+#
+# Distributed (and overwritten) by helloworlddevs/pantheon-ci-tools so every
+# project gets identical parallel sharding and CI-content-module enabling. Keep
+# project-specific behavior out of here; put it in configure-site or run-tests.
+
+# Paths
+junit_dir="./tests/behat/results/junit"
+counter=0
+
+# Clean up and initialize directories
+rm -f "$junit_dir/testcases.xml"
+mkdir -p "$junit_dir"
+
+# Enable CI-only content modules by convention: any module whose machine name
+# ends in `_test_content`, `_custom_content`, `_default_content`, or
+# `_user_content`. Their hook_install() seeds the prod-mirroring fixtures (path
+# aliases, nodes, users, etc.) that a config-only install lacks, so feature tests
+# resolve content-only public URLs instead of 404ing. Enabled here (and in
+# install-drupal) rather than in exported config, so production never enables
+# them. Idempotent — a no-op if they're already on or absent.
+CI_CONTENT_MODULES="$(vendor/bin/drush pm:list --type=module --status=disabled --format=list 2>/dev/null | grep -E '_(test|custom|default|user)_content$' || true)"
+if [ -n "$CI_CONTENT_MODULES" ]; then
+  echo "Enabling CI-only content modules: $CI_CONTENT_MODULES"
+  # shellcheck disable=SC2086
+  vendor/bin/drush en $CI_CONTENT_MODULES -y || echo "WARNING: could not enable CI content modules"
+  vendor/bin/drush cr
+fi
+
+# Glob all feature files, then keep only this node's shard. CIRCLE_NODE_TOTAL /
+# CIRCLE_NODE_INDEX are provided by CircleCI parallelism (default to 1/0 so the
+# script still works when run on a single box).
+files=$(circleci tests glob "tests/behat/features/*.feature")
+test_files=($(echo $files | tr ' ' '\n' | sort | awk "NR % ${CIRCLE_NODE_TOTAL:-1} == ${CIRCLE_NODE_INDEX:-0}"))
+
+# Attempts per feature file. Flaky scenarios (transient browser/WebSocket
+# timeouts, cold-start races) usually pass on a second run, so re-run a failed
+# feature file before declaring it broken. Override with BEHAT_MAX_ATTEMPTS; set
+# it to 1 to disable retries.
+max_attempts="${BEHAT_MAX_ATTEMPTS:-2}"
+
+for file in "${test_files[@]}"; do
+  # Unique junit output dir per feature so shards don't clobber each other.
+  output_dir="$junit_dir/test_run_$counter"
+  mkdir -p "$output_dir"
+
+  attempt=1
+  while [ "$attempt" -le "$max_attempts" ]; do
+    echo "Running Behat tests for $file (attempt $attempt/$max_attempts)"
+
+    # The junit file is rewritten on every attempt, so a passing retry overwrites
+    # the failed report and the failure scan below sees a clean result.
+    # --allow-no-tests: some feature files are fully excluded by CI tag filters
+    # (e.g. @local); running them directly would otherwise exit non-zero with
+    # "No specifications found" and fail the shard.
+    vendor/bin/behat --config ./tests/behat/behat.yml --suite default --profile circleci --allow-no-tests -f pretty -o std -f junit -o "$output_dir" $file
+    behat_status=$?
+
+    # Behat exits 0 when every scenario passes (or there were no tests to run,
+    # thanks to --allow-no-tests). Anything else is worth a retry.
+    if [ "$behat_status" -eq 0 ]; then
+      break
+    fi
+
+    if [ "$attempt" -lt "$max_attempts" ]; then
+      echo "::: $file failed (exit $behat_status) on attempt $attempt — retrying to rule out a flaky failure."
+    else
+      echo "::: $file still failing after $attempt attempt(s)."
+    fi
+    attempt=$((attempt + 1))
+  done
+
+  counter=$((counter + 1))
+done
+
+# Scan every shard's junit for failures and fail the job if any are present.
+failures_found=0
+for dir in "$junit_dir"/test_run_*; do
+  if [ -d "$dir" ] && [ -f "$dir/default.xml" ]; then
+    if grep -q '<failure' "$dir/default.xml"; then
+      echo "Failure found in $dir"
+      failures_found=1
+    fi
+  fi
+done
+
+if [ "$failures_found" -eq 1 ]; then
+  echo "Test failures detected. Exiting with status 1."
+  exit 1
+else
+  echo "All tests passed. Exiting with status 0."
+  exit 0
+fi
