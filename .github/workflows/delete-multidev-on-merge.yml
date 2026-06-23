@@ -21,10 +21,6 @@ jobs:
         with:
           terminus-version: '3.2.0'
           pantheon-machine-token: ${{ secrets.TERMINUS_TOKEN }}
-      - name: Install Terminus Secrets Plugin
-        env:
-          TERMINUS_ALLOW_UNSUPPORTED_NEWER_PHP: 1
-        run: terminus self:plugin:install pantheon-systems/terminus-secrets-plugin --yes
 
       - name: Delete Multidev Environment
         env:
