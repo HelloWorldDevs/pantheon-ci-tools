@@ -5,13 +5,12 @@
 
 SYNC_DIR="${CONFIG_SYNC_DIR:-config/sync}"
 
-# Resolve to a directory that actually contains the sync dir. sync-prod-config.sh
-# invokes this from the project root (CWD already has config/sync), so prefer
-# the current directory; fall back to the git toplevel. Do NOT derive the root
-# from this script's own location — it lives several levels deep under
-# .ci/scripts/config_split, and the old `dirname` math landed in .ci/scripts,
-# which is why earlier runs reported "config/sync/core.extension.yml: No such
-# file or directory" and silently skipped the real checks.
+# Resolve to a directory that actually contains the sync dir. This is run from
+# the project root (CWD already has config/sync) via the Lando `config-check` /
+# `safe-export` tooling, so prefer the current directory; fall back to the git
+# toplevel. Do NOT derive the root from this script's own location — it lives
+# several levels deep under lando/scripts, and naive `dirname` math would land
+# in the wrong place and silently skip the real checks.
 if [ ! -d "$SYNC_DIR" ]; then
   GITROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
   if [ -n "$GITROOT" ] && [ -d "$GITROOT/$SYNC_DIR" ]; then
