@@ -48,7 +48,14 @@ const path = require("path");
 // Set up environment variables with defaults
 const ENV = {
   // Testing URL - try to get from environment variables or use Lando URL
-  TESTING_URL: process.env.DEV_SITE_URL || "http://localhost:3000",
+  // The runner passes TESTING_URL explicitly per pass (reference env for
+  // --update-snapshots, target env for the comparison). Reading DEV_SITE_URL
+  // here made BOTH passes screenshot the reference site, so every comparison
+  // was the reference against itself. DEV_SITE_URL stays as a local fallback.
+  TESTING_URL:
+    process.env.TESTING_URL ||
+    process.env.DEV_SITE_URL ||
+    "http://localhost:3000",
   // Artifacts directory for saving screenshots
   ARTIFACTS_DIR: process.env.ARTIFACTS_DIR || path.join(process.cwd(), "test-results"),
   // CI info
