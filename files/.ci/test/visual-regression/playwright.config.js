@@ -85,6 +85,9 @@ module.exports = defineConfig({
     ["list"],
     ["html", { outputFolder: "playwright-report" }],
     ["junit", { outputFile: "test-results/junit.xml" }],
+    // JSON report is what run-playwright parses to name the failing tests in
+    // the Slack failure notification (see write_failure_summary there).
+    ["json", { outputFile: "test-results/results.json" }],
   ],
   /* Configure projects for major browsers */
   projects: [

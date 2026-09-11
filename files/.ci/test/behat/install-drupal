@@ -1,0 +1,140 @@
+#!/bin/bash
+
+# Installs Drupal for Behat tests against a fresh (content-less) database.
+#
+# Distributed by helloworlddevs/pantheon-ci-tools. The behat_setup/behat_test
+# jobs in .circleci/config.yml call this script; project-specific work (theme
+# build, file ownership, etc.) belongs in the project's configure-site, not here.
+#
+# Strategy: detect the install profile from the committed config and install
+# THAT profile by name, then import the exported config on top.
+#
+# Why install the project's own profile (not standard/minimal):
+#   - Sites with a CUSTOM profile keep their modules/themes nested under
+#     profiles/<profile>/. Drupal only discovers those once that profile is the
+#     installed one, so installing a generic profile then importing config fails
+#     with "Cannot change the install profile ..." and "Unable to install the
+#     <module> since it does not exist" — and a retry loop around it spins
+#     forever.
+#
+# Why NOT `site:install --existing-config`:
+#   - Drupal refuses it for any profile that implements hook_install() ("The
+#     selected profile has a hook_install() implementation and therefore can not
+#     be installed from configuration"), which many custom profiles do.
+#     Installing the profile and then importing config works for both kinds.
+
+set -eo pipefail
+
+DRUSH="./vendor/bin/drush"
+
+# Admin account for the fresh install, so Behat scenarios that log in as the
+# administrator have known, fixed credentials. Overridable via the executor env
+# (ADMIN_USERNAME / ADMIN_PASSWORD), with sane defaults.
+ACCOUNT_NAME="${ADMIN_USERNAME:-admin}"
+ACCOUNT_PASS="${ADMIN_PASSWORD:-admin}"
+
+SYNC_DIR="${CONFIG_SYNC_DIR:-config/sync}"
+CORE_EXT="${SYNC_DIR}/core.extension.yml"
+SITE_YML="${SYNC_DIR}/system.site.yml"
+
+# Detect the install profile declared in the committed config, if any.
+PROFILE=""
+if [ -f "$CORE_EXT" ]; then
+  PROFILE="$(awk -F':[[:space:]]*' '/^profile:/ {gsub(/["'"'"'[:space:]]/,"",$2); print $2; exit}' "$CORE_EXT")"
+fi
+
+if [ -n "$PROFILE" ]; then
+  echo "Installing Drupal with profile: ${PROFILE}"
+  $DRUSH -y site:install "$PROFILE" --account-name="$ACCOUNT_NAME" --account-pass="$ACCOUNT_PASS"
+else
+  echo "No profile detected in ${CORE_EXT}; installing default profile."
+  $DRUSH -y site:install --account-name="$ACCOUNT_NAME" --account-pass="$ACCOUNT_PASS"
+fi
+
+# If the project ships exported config, import it on top of the fresh install.
+if [ -f "$CORE_EXT" ]; then
+  # config:import requires the active site UUID to match the exported one.
+  if [ -f "$SITE_YML" ]; then
+    UUID="$(awk -F':[[:space:]]*' '/^uuid:/ {gsub(/["'"'"'[:space:]]/,"",$2); print $2; exit}' "$SITE_YML")"
+    if [ -n "$UUID" ]; then
+      echo "Aligning site UUID to exported config: ${UUID}"
+      $DRUSH -y config:set system.site uuid "$UUID"
+    fi
+  fi
+
+  # The installer auto-creates a default shortcut set that can collide with
+  # imported config on some profiles. Drop it if shortcut is enabled. Non-fatal.
+  $DRUSH -y ev 'if (\Drupal::moduleHandler()->moduleExists("shortcut")) { $s = \Drupal::entityTypeManager()->getStorage("shortcut_set")->load("default"); if ($s) { $s->delete(); } }' || true
+
+  # The install profile can create forum content — a "General discussion" term in
+  # the "forums" vocabulary (and sometimes a sample forum node). When the exported
+  # config REMOVES the forum vocabulary/type, config:import refuses to run while
+  # those content entities still exist ("Entities exist of type Taxonomy term and
+  # Vocabulary Forums ... need to be deleted before importing"). Delete them
+  # BEFORE the import. Unguarded but non-fatal (each command is `|| true`), so it
+  # always runs the cleanup on sites that have forum and harmlessly no-ops on
+  # those that don't (entity:delete just errors out, suppressed).
+  echo "Removing any installer-created forum content before config import..."
+  $DRUSH -y entity:delete node --bundle=forum 2>/dev/null || true
+  $DRUSH -y entity:delete taxonomy_term --bundle=forums 2>/dev/null || true
+  $DRUSH cr || true
+
+  # config:import can need several passes on a fresh install. The first pass
+  # installs the modules listed in core.extension, and some module install hooks
+  # query field tables (e.g. comment__comment_body) that aren't created until
+  # their field-storage config is imported LATER in the same run — so the first
+  # pass can die with "Base table or view not found". Module installs persist
+  # across passes, so a retry finishes the remaining config without re-running
+  # those hooks. Bounded so a genuinely broken import fails fast instead of
+  # looping forever (unlike the old unbounded loop, which spun on the
+  # never-satisfiable profile-mismatch error).
+  echo "Importing configuration..."
+  import_ok=0
+  for attempt in 1 2 3 4 5; do
+    if $DRUSH -y config:import; then
+      import_ok=1
+      echo "config:import succeeded on attempt ${attempt}."
+      break
+    fi
+    echo "config:import attempt ${attempt} did not complete; retrying..."
+  done
+  if [ "$import_ok" -ne 1 ]; then
+    echo "ERROR: config:import did not converge after 5 attempts." >&2
+    exit 1
+  fi
+fi
+
+# Enable CI-only content modules. Convention: any discovered module whose machine
+# name ends in `_test_content`, `_custom_content`, `_default_content`, or
+# `_user_content`. Their hook_install() seeds fixtures (path aliases, nodes,
+# users, etc.) so feature tests don't 404 on content-only public URLs. They are
+# deliberately NOT in exported config, so prod never enables them — CI opts in
+# here by convention. Works regardless of where the module lives (profile or
+# modules/custom), so it survives the profile removal.
+CI_CONTENT_MODULES="$($DRUSH pm:list --type=module --status=disabled --format=list 2>/dev/null | grep -E '_(test|custom|default|user)_content$' || true)"
+if [ -n "$CI_CONTENT_MODULES" ]; then
+  echo "Enabling CI-only content modules: $CI_CONTENT_MODULES"
+  # shellcheck disable=SC2086
+  $DRUSH -y en $CI_CONTENT_MODULES
+fi
+
+echo "Running DB Updates"
+$DRUSH updb -y;
+
+# Apply pending entity/field schema updates. `upe` (entity:updates) was removed in
+# newer Drush (Drupal 10+), so this is non-fatal: it runs where the command exists
+# and harmlessly no-ops ("command not found") where it doesn't.
+echo "Applying entity schema updates"
+$DRUSH -y upe --all || true
+
+# Rebuild node access grants so node-access modules (group, content_access, etc.)
+# grant correct visibility to anonymous/test users after a fresh install.
+# Non-fatal: a harmless no-op on sites without node access modules.
+echo "Rebuilding node access grants..."
+$DRUSH -y php:eval 'node_access_rebuild();' 2>/dev/null || true
+
+echo "Clearing caches..."
+$DRUSH cr;
+
+# Get status for debugging purposes.
+$DRUSH status;

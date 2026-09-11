@@ -5,9 +5,11 @@ set -e  # Exit on any error
 # This script runs visual regression tests using Playwright's built-in testing tools
 #
 
-# Debug: Print environment variables
+# Debug: Print environment variables. `|| true` keeps this purely diagnostic:
+# under `set -e`, grep exiting 1 (no matches) would otherwise abort the script
+# before the explicit "Required environment variables are not set" check below.
 echo "=== Environment Variables in Run Script ==="
-set | grep -E 'DEV_SITE_URL|MULTIDEV_SITE_URL|TERMINUS_'
+set | grep -E 'DEV_SITE_URL|MULTIDEV_SITE_URL|LIVE_SITE_URL|VRT_REFERENCE_URL|VRT_TARGET_URL|TERMINUS_' || true
 echo "==========================================="
 
 # Variables
@@ -15,16 +17,25 @@ BUILD_DIR=$(pwd)
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 ARTIFACTS_DIR="${ARTIFACTS_FULL_DIR:-/tmp/artifacts}"
 
+# Which environments to compare. The job sets these per workflow:
+#   • PR flow:     REFERENCE = dev   (baseline), TARGET = multidev (new code)
+#   • master flow: REFERENCE = prod  (baseline), TARGET = dev      (new code)
+# Defaults preserve the original PR behavior when the job passes nothing.
+#   REFERENCE_URL → snapshots are generated FROM this ("known good").
+#   TARGET_URL    → compared AGAINST the baseline (the candidate under test).
+REFERENCE_URL="${VRT_REFERENCE_URL:-${DEV_SITE_URL}}"
+TARGET_URL="${VRT_TARGET_URL:-${MULTIDEV_SITE_URL}}"
+
 # Verify required environment variables
-if [ -z "${MULTIDEV_SITE_URL}" ] || [ -z "${DEV_SITE_URL}" ]; then
+if [ -z "${TARGET_URL}" ] || [ -z "${REFERENCE_URL}" ]; then
     echo "ERROR: Required environment variables are not set"
-    echo "MULTIDEV_SITE_URL: ${MULTIDEV_SITE_URL:-Not Set}"
-    echo "DEV_SITE_URL: ${DEV_SITE_URL:-Not Set}"
+    echo "REFERENCE_URL (baseline): ${REFERENCE_URL:-Not Set}"
+    echo "TARGET_URL (candidate):   ${TARGET_URL:-Not Set}"
     exit 1
 fi
 
-echo "Using multidev URL: $MULTIDEV_SITE_URL"
-echo "Using dev URL: $DEV_SITE_URL"
+echo "Using REFERENCE (baseline) URL: $REFERENCE_URL"
+echo "Using TARGET (candidate) URL:   $TARGET_URL"
 
 # ---------------------------------------------------------------------------
 # Cache pre-warming
@@ -64,14 +75,19 @@ find_routes_json() {
 
 # Emit one URL path per line from test_routes.json. Handles both the new
 # `{ routes: { name: url, ... } }` schema and the legacy `{ name: url }`
-# top-level shape. Strips any protocol+host so we can prefix env URLs.
+# top-level shape. Route values may be either a plain URL string OR an object
+# like `{ url: "/dashboard", auth: true }` (the authenticated-route schema the
+# spec uses) — in the object case we read `url` (or `path`). Strips any
+# protocol+host so we can prefix env URLs.
 extract_route_paths() {
   local routes_file="$1"
   node -e "
     const fs = require('fs');
     const raw = JSON.parse(fs.readFileSync('${routes_file}', 'utf8'));
     const routes = (raw && typeof raw.routes === 'object') ? raw.routes : raw;
-    for (const url of Object.values(routes)) {
+    for (const value of Object.values(routes)) {
+      const url = (value && typeof value === 'object') ? (value.url || value.path) : value;
+      if (!url || typeof url !== 'string') continue;
       try {
         const parsed = new URL(/^https?:\/\//.test(url) ? url : 'http://x' + url);
         process.stdout.write(parsed.pathname + parsed.search + '\n');
@@ -94,8 +110,8 @@ warm_caches() {
 
   while IFS= read -r path_only; do
     [ -z "${path_only}" ] && continue
-    printf '%s\n' "${DEV_SITE_URL}${path_only}" >> "${urls_file}"
-    printf '%s\n' "${MULTIDEV_SITE_URL}${path_only}" >> "${urls_file}"
+    printf '%s\n' "${REFERENCE_URL}${path_only}" >> "${urls_file}"
+    printf '%s\n' "${TARGET_URL}${path_only}" >> "${urls_file}"
   done < <(extract_route_paths "${routes_file}")
 
   if [ ! -s "${urls_file}" ]; then
@@ -139,10 +155,10 @@ if ROUTES_FILE=$(find_routes_json); then
   warm_caches "${ROUTES_FILE}"
 else
   echo "Warning: could not find test_routes.json — falling back to bare-URL pings"
-  curl -sIL -o /dev/null --max-time 90 "$MULTIDEV_SITE_URL" \
-    || echo "Warning: Failed to ping $MULTIDEV_SITE_URL"
-  curl -sIL -o /dev/null --max-time 90 "$DEV_SITE_URL" \
-    || echo "Warning: Failed to ping $DEV_SITE_URL"
+  curl -sIL -o /dev/null --max-time 90 "$TARGET_URL" \
+    || echo "Warning: Failed to ping $TARGET_URL"
+  curl -sIL -o /dev/null --max-time 90 "$REFERENCE_URL" \
+    || echo "Warning: Failed to ping $REFERENCE_URL"
 fi
 
 
@@ -174,7 +190,7 @@ rm -rf playwright-tests.spec.js-snapshots
 # not a tool config).
 echo "Running test with UPDATE_SNAPSHOTS flag to create baseline images..."
 set +e
-TESTING_URL=$DEV_SITE_URL npx playwright test --update-snapshots --retries=0
+TESTING_URL=$REFERENCE_URL npx playwright test --update-snapshots --retries=0
 set -e
 
 echo ""
@@ -185,11 +201,16 @@ echo "========================================================="
 # Now run comparison tests against the test environment
 echo "Running tests without UPDATE_MODE to perform comparisons..."
 
-# Run comparison tests (compare test environment screenshots with baseline)
-TESTING_URL=$MULTIDEV_SITE_URL npx playwright test
-
-# Store the exit code for retry logic later
+# Run comparison tests (compare test environment screenshots with baseline).
+# Wrap in set +e: under `set -e` a non-zero exit here would abort the script
+# BEFORE the retry block below ever ran (that block was effectively dead code).
+set +e
+TESTING_URL=$TARGET_URL npx playwright test
 TEST_EXIT_CODE=$?
+set -e
+
+# Default the final result to the comparison result; the retry below may clear it.
+FINAL_EXIT_CODE=$TEST_EXIT_CODE
 
 # Check if there were any failures
 if [ $TEST_EXIT_CODE -ne 0 ]; then
@@ -221,10 +242,13 @@ if [ $TEST_EXIT_CODE -ne 0 ]; then
   # and runs only the failed specs. Cuts retry-pass wall time proportional
   # to the failure ratio (e.g. 6 failed of 66 → 10x faster retry pass).
   set +e
-  TESTING_URL=$MULTIDEV_SITE_URL RETRY_WITH_HIGHER_THRESHOLD=true \
+  TESTING_URL=$TARGET_URL RETRY_WITH_HIGHER_THRESHOLD=true \
     npx playwright test --last-failed
   RETRY_EXIT_CODE=$?
   set -e
+
+  # The retry is the decisive result: if it clears, the job passes.
+  FINAL_EXIT_CODE=$RETRY_EXIT_CODE
 
   if [ $RETRY_EXIT_CODE -eq 0 ]; then
     echo ""
@@ -244,4 +268,31 @@ fi
 echo "Copying test report to artifacts directory..."
 mkdir -p "$ARTIFACTS_DIR/playwright-report"
 cp -r playwright-report/* "$ARTIFACTS_DIR/playwright-report/" || echo "Warning: Failed to copy report"
+
+# ---------------------------------------------------------------------------
+# Failure summary for Slack
+# ---------------------------------------------------------------------------
+# When the suite ends up failing, write a newline-delimited list of the tests
+# that actually failed (parsed from the last run's JSON report). The CircleCI
+# job's on_fail step turns this into a Slack message that names the failures
+# and links to the diff report — far more actionable than "job failed".
+if [ "${FINAL_EXIT_CODE}" -ne 0 ]; then
+  echo "Writing failed-test summary for Slack notification..."
+  node -e '
+    const fs = require("fs");
+    let data;
+    try { data = JSON.parse(fs.readFileSync("test-results/results.json", "utf8")); }
+    catch (e) { process.exit(0); }
+    const failed = new Set();
+    const walk = (s) => {
+      if (!s) return;
+      (s.specs || []).forEach((sp) => { if (sp.ok === false) failed.add(sp.title); });
+      (s.suites || []).forEach(walk);
+    };
+    (data.suites || []).forEach(walk);
+    fs.writeFileSync("test-results/slack-failures.txt", [...failed].join("\n"));
+  ' || echo "Warning: could not parse results.json for Slack summary"
+fi
+
+exit "${FINAL_EXIT_CODE}"
 

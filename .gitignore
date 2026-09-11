@@ -10,3 +10,4 @@ vendor/
 lando-output.yml
 sampleoutput/
 .env
+.playwright-mcp/

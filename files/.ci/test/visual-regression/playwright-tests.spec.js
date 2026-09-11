@@ -6,6 +6,40 @@
  * 1. First capture the reference site (DEV)
  * 2. Then capture the test site (MULTIDEV)
  * 3. Save both for side-by-side comparisons
+ *
+ * AUTHENTICATED ROUTES
+ * --------------------
+ * Routes that require a logged-in user are supported via an optional `auth`
+ * block in test_routes.json plus an `auth` flag on the routes that need it.
+ * Anonymous routes are unaffected — if you don't add an `auth` block, nothing
+ * about the existing behavior changes.
+ *
+ *   {
+ *     "auth": {
+ *       "loginUrl": "/user/login",            // default: /user/login
+ *       "preFormSelector": ".show-login",     // optional: click to reveal the
+ *                                             //   fields (some themes hide the
+ *                                             //   login form behind a button)
+ *       "usernameSelector": "input[name=name]", // Drupal core defaults
+ *       "passwordSelector": "input[name=pass]",
+ *       "submitSelector": "#edit-submit",
+ *       "successSelector": "body.user-logged-in" // optional post-login wait
+ *     },
+ *     "routes": {
+ *       "HomePage": "/",                        // string  → anonymous
+ *       "Dashboard": { "url": "/dashboard", "auth": true } // object → logged in
+ *     }
+ *   }
+ *
+ * IMPORTANT: credentials are NEVER stored in test_routes.json (it is committed
+ * to the repo). The username and password are read only from environment
+ * variables — VRT_USERNAME and VRT_PASSWORD by default. Set these in the
+ * CircleCI project/context settings. To use different env var names, add
+ * "usernameEnv"/"passwordEnv" to the auth block (the *names*, not the values).
+ *
+ * The login is performed once per environment (DEV and MULTIDEV are separate
+ * domains, so each gets its own session) and the resulting cookies are reused
+ * across every authenticated route/viewport.
  */
 const { test, expect } = require("@playwright/test");
 const fs = require("fs");
@@ -14,7 +48,14 @@ const path = require("path");
 // Set up environment variables with defaults
 const ENV = {
   // Testing URL - try to get from environment variables or use Lando URL
-  TESTING_URL: process.env.DEV_SITE_URL || "http://localhost:3000",
+  // The runner passes TESTING_URL explicitly per pass (reference env for
+  // --update-snapshots, target env for the comparison). Reading DEV_SITE_URL
+  // here made BOTH passes screenshot the reference site, so every comparison
+  // was the reference against itself. DEV_SITE_URL stays as a local fallback.
+  TESTING_URL:
+    process.env.TESTING_URL ||
+    process.env.DEV_SITE_URL ||
+    "http://localhost:3000",
   // Artifacts directory for saving screenshots
   ARTIFACTS_DIR: process.env.ARTIFACTS_DIR || path.join(process.cwd(), "test-results"),
   // CI info
@@ -139,9 +180,30 @@ function resolveTestRoutesPath() {
   return null;
 }
 
-// Initialize test paths and hideSelectors array
+// Normalize a route entry into { name, url, auth }. A route value may be:
+//   - a string path/URL                      → anonymous
+//   - an object { url|path, auth }            → auth defaults to false
+function normalizeRoute(name, value) {
+  let raw;
+  let auth = false;
+  if (typeof value === "string") {
+    raw = value;
+  } else if (value && typeof value === "object") {
+    raw = value.url || value.path || "/";
+    auth = Boolean(value.auth);
+  } else {
+    return null;
+  }
+  const parsedUrl = new URL(
+    raw.startsWith("http") ? raw : `http://example.com${raw}`
+  );
+  return { name, url: parsedUrl.pathname + parsedUrl.search, auth };
+}
+
+// Initialize test paths, hideSelectors, and auth config
 let paths = [];
 let hideSelectors = [];
+let authConfig = null;
 
 // Try to find and load test routes
 try {
@@ -155,26 +217,20 @@ try {
 
     hideSelectors = [];
 
-    if (routesData.routes && typeof routesData.routes === "object") {
-      paths = Object.entries(routesData.routes).map(([name, url]) => {
-        const parsedUrl = new URL(
-          url.startsWith("http") ? url : `http://example.com${url}`
-        );
-        return {
-          name,
-          url: parsedUrl.pathname + parsedUrl.search,
-        };
-      });
-    } else {
-      paths = Object.entries(routesData).map(([name, url]) => {
-        const parsedUrl = new URL(
-          url.startsWith("http") ? url : `http://example.com${url}`
-        );
-        return {
-          name,
-          url: parsedUrl.pathname + parsedUrl.search,
-        };
-      });
+    // The routes live under `routes` in the current schema; the legacy
+    // format used the top-level object directly as the route map. `auth`
+    // and `hideSelectors` are reserved keys and never treated as routes.
+    const routeMap =
+      routesData.routes && typeof routesData.routes === "object"
+        ? routesData.routes
+        : routesData;
+    paths = Object.entries(routeMap)
+      .filter(([key]) => key !== "hideSelectors" && key !== "auth")
+      .map(([name, value]) => normalizeRoute(name, value))
+      .filter(Boolean);
+
+    if (routesData.auth && typeof routesData.auth === "object") {
+      authConfig = routesData.auth;
     }
 
     if (routesData.hideSelectors && Array.isArray(routesData.hideSelectors)) {
@@ -182,9 +238,15 @@ try {
     }
 
     if (SHOULD_LOG_STARTUP) {
+      const authCount = paths.filter((p) => p.auth).length;
       console.log(
-        `✅ Loaded ${paths.length} test routes (${hideSelectors.length} hide selectors)`
+        `✅ Loaded ${paths.length} test routes (${authCount} authenticated, ${hideSelectors.length} hide selectors)`
       );
+      if (authCount > 0 && !authConfig) {
+        console.warn(
+          "⚠️ Routes are marked auth:true but no top-level `auth` block was found in test_routes.json — those routes will be captured ANONYMOUSLY."
+        );
+      }
     }
   } else {
     if (SHOULD_LOG_STARTUP) {
@@ -230,8 +292,144 @@ ensureDirectoryExists(screenshotDir);
 // cold-start tax) and pre-fills Varnish once, instead of paying it
 // twice per route inside the test.
 
+// Cache of logged-in storageState keyed by base URL. DEV and MULTIDEV are
+// different domains/origins, so each environment gets its own session. We log
+// in at most once per environment per worker and reuse the cookies for every
+// authenticated route × viewport, instead of re-submitting the login form
+// dozens of times.
+const authStateCache = new Map();
+
+// Perform a form login against `baseUrl` and return a Playwright storageState
+// object (cookies + localStorage) that can be handed to newContext(). Result
+// is memoized per baseUrl. Throws if credentials are missing so failures are
+// loud rather than silently producing anonymous screenshots.
+async function getAuthState(browser, baseUrl, auth) {
+  if (authStateCache.has(baseUrl)) {
+    return authStateCache.get(baseUrl);
+  }
+
+  const loginUrl = auth.loginUrl || "/user/login";
+  const usernameSelector = auth.usernameSelector || "input[name=name]";
+  const passwordSelector = auth.passwordSelector || "input[name=pass]";
+  const submitSelector = auth.submitSelector || "#edit-submit";
+
+  // Credentials are read ONLY from environment variables — never from the
+  // committed test_routes.json. The config may rename which env vars to read
+  // via `usernameEnv` / `passwordEnv`; defaults are VRT_USERNAME / VRT_PASSWORD.
+  const usernameEnv = auth.usernameEnv || "VRT_USERNAME";
+  const passwordEnv = auth.passwordEnv || "VRT_PASSWORD";
+  const username = process.env[usernameEnv];
+  const password = process.env[passwordEnv];
+
+  if (!username || !password) {
+    // Best-effort: don't crash the whole run if creds aren't configured —
+    // log once per env and screenshot anonymously instead.
+    console.warn(
+      `  ⚠ [auth] credentials missing (${usernameEnv}/${passwordEnv}); ` +
+        `continuing WITHOUT login for ${baseUrl}.`
+    );
+    authStateCache.set(baseUrl, null);
+    return null;
+  }
+
+  process.stdout.write(`  → logging in at ${baseUrl}${loginUrl}\n`);
+  const ctx = await browser.newContext({ ignoreHTTPSErrors: true });
+  try {
+    const page = await ctx.newPage();
+    // Use "load" (NOT "networkidle"): Drupal login pages routinely carry chat,
+    // analytics or reCAPTCHA widgets that keep the network busy indefinitely,
+    // so "networkidle" would burn the whole timeout for no benefit. "load"
+    // still guarantees scripts ran — which matters because the credential
+    // fields can be revealed by theme JS (see the toggle handling below).
+    await page.goto(`${baseUrl}${loginUrl}`, {
+      waitUntil: "load",
+      timeout: 30000,
+    });
+
+    // Reveal the credential fields before filling. Some themes hide the form
+    // behind a toggle (`preFormSelector`) — BUT also auto-expand it when
+    // navigator.webdriver is true, which Playwright sets. In that case the
+    // form is ALREADY open, and clicking the toggle would flip it CLOSED again
+    // (the original timeout bug). So: only click the toggle when the username
+    // field isn't already visible, and confirm visibility afterward.
+    const usernameField = page.locator(usernameSelector).first();
+    let fieldVisible = await usernameField.isVisible().catch(() => false);
+    if (!fieldVisible && auth.preFormSelector) {
+      await page
+        .locator(auth.preFormSelector)
+        .first()
+        .click({ timeout: 15000 })
+        .catch(() => {});
+      fieldVisible = await usernameField
+        .waitFor({ state: "visible", timeout: 15000 })
+        .then(() => true)
+        .catch(() => false);
+    }
+    if (!fieldVisible) {
+      // Behaviors may have attached late; give the field one final chance to
+      // appear (throws loudly if the selectors are genuinely wrong).
+      await usernameField.waitFor({ state: "visible", timeout: 15000 });
+    }
+
+    // Neutralize consent/cookie banners that overlay the form and intercept the
+    // submit click (e.g. HubSpot's #hs-eu-cookie-confirmation sits on top of the
+    // login button → "subtree intercepts pointer events"). We hide the project's
+    // configured hideSelectors PLUS a few common consent banners, and disable
+    // pointer events so clicks pass through even if something stays painted.
+    const overlaySelectors = [
+      ...hideSelectors,
+      "#hs-eu-cookie-confirmation",
+      ".hs-cookie-notification-position-bottom",
+      "#gdpr-banner",
+      ".cookie-notice",
+      ".cookie-notification",
+    ];
+    await page
+      .addStyleTag({
+        content: overlaySelectors
+          .map(
+            (s) =>
+              `${s}{display:none!important;visibility:hidden!important;pointer-events:none!important;}`
+          )
+          .join("\n"),
+      })
+      .catch(() => {});
+
+    await usernameField.fill(username);
+    await page.locator(passwordSelector).first().fill(password);
+    await Promise.all([
+      page.waitForLoadState("load", { timeout: 30000 }).catch(() => {}),
+      // force:true as a last resort — bypasses the actionability hit-test so a
+      // late-painted overlay can't block the click after we've hidden it above.
+      page.locator(submitSelector).first().click({ force: true }),
+    ]);
+    if (auth.successSelector) {
+      await page.waitForSelector(auth.successSelector, { timeout: 15000 });
+    }
+    const state = await ctx.storageState();
+    authStateCache.set(baseUrl, state);
+    return state;
+  } catch (err) {
+    // Best-effort: a site that doesn't actually have this login (missing form,
+    // different markup, no success selector, etc.) shouldn't fail the run. Warn
+    // and fall back to an anonymous session.
+    const msg = (err && err.message ? err.message : String(err)).split("\n")[0];
+    console.warn(
+      `  ⚠ [auth] login at ${baseUrl}${loginUrl} did not complete (${msg}); ` +
+        `continuing WITHOUT login.`
+    );
+    authStateCache.set(baseUrl, null);
+    return null;
+  } finally {
+    // Swallow close errors: if the surrounding test already timed out, the
+    // context may be torn down out from under us, and a throw here would mask
+    // the real failure.
+    await ctx.close().catch(() => {});
+  }
+}
+
 // Define test for each path
-paths.forEach(({ name, url }) => {
+paths.forEach(({ name, url, auth: routeRequiresAuth }) => {
   test.describe(`Visual regression test for ${name}`, () => {
     // Test each viewport
     ["mobile", "tablet", "desktop"].forEach((viewport) => {
@@ -244,7 +442,9 @@ paths.forEach(({ name, url }) => {
         // `process.stdout.write` (not console.log) avoids the implicit
         // newline buffering that can hide output on some CI captures.
         // The "list" reporter adds the post-test result line separately.
-        process.stdout.write(`  → ${name} on ${viewport}\n`);
+        process.stdout.write(
+          `  → ${name} on ${viewport}${routeRequiresAuth ? " [auth]" : ""}\n`
+        );
 
         const viewportSizes = {
           mobile: { width: 320, height: 480 },
@@ -252,20 +452,40 @@ paths.forEach(({ name, url }) => {
           desktop: { width: 1920, height: 1080 },
         };
 
-        // Create a single page for testing/snapshot comparison
-        // Create a browser context with JavaScript enabled for consistent behavior
-        const browserContext = await context.browser().newContext({
-          javaScriptEnabled: true,
-        });
-
-        // Create a new page for testing
-        const testPage = await browserContext.newPage();
-        await testPage.setViewportSize(viewportSizes[viewport]);
-
         // The URL to test varies based on the execution context
         // First run with --update-snapshots will use DEV_SITE_URL (reference)
         // Second run without the flag will use MULTIDEV_SITE_URL (test)
         const urlToTest = ENV.TESTING_URL;
+
+        // For authenticated routes, establish (or reuse) a logged-in session
+        // for THIS environment and seed the context with it. Anonymous routes
+        // skip this entirely.
+        const contextOptions = {
+          javaScriptEnabled: true,
+          ignoreHTTPSErrors: true,
+        };
+        if (routeRequiresAuth && authConfig) {
+          // getAuthState is best-effort: it returns null (and logs a warning)
+          // if the site doesn't have this login. Only seed storageState when we
+          // actually got a session, otherwise screenshot anonymously.
+          const authState = await getAuthState(
+            context.browser(),
+            urlToTest,
+            authConfig
+          );
+          if (authState) {
+            contextOptions.storageState = authState;
+          }
+        }
+
+        // Create a single page for testing/snapshot comparison
+        const browserContext = await context
+          .browser()
+          .newContext(contextOptions);
+
+        // Create a new page for testing
+        const testPage = await browserContext.newPage();
+        await testPage.setViewportSize(viewportSizes[viewport]);
 
         await testPage.goto(`${urlToTest}${url}`, {
           waitUntil: "networkidle",

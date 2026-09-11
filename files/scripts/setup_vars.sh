@@ -79,6 +79,12 @@ fi
 DEV_SITE_URL="https://dev-${TERMINUS_SITE}.pantheonsite.io"
 echo "Set DEV_SITE_URL: $DEV_SITE_URL"
 
+# Set the production URL used as the VRT baseline on the master flow. Defaults to
+# the Pantheon live env; override with PROD_SITE_URL (e.g. a custom prod domain)
+# in .circleci/env_vars.sh or the CircleCI project settings.
+LIVE_SITE_URL="${PROD_SITE_URL:-https://live-${TERMINUS_SITE}.pantheonsite.io}"
+echo "Set LIVE_SITE_URL: $LIVE_SITE_URL"
+
 # Get Pantheon site ID from Terminus if not already set
 if [ -z "${TERMINUS_SITE_ID}" ]; then
     echo "Getting site ID for $TERMINUS_SITE from Terminus..."
@@ -110,6 +116,7 @@ export CODESERVER_HOST
 export JIRA_TICKET_ID
 export MULTIDEV_SITE_URL
 export DEV_SITE_URL
+export LIVE_SITE_URL
 export PR_NUMBER
 export WEB_ROOT
 export THEME_PATH

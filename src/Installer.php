@@ -27,6 +27,16 @@ class Installer
         $this->io->write('  - Copying CI configuration files...');
         $this->copyFiles();
 
+        // For projects using the local-install ("box") Behat model, make sure
+        // the CI settings.local.php that configure-site copies actually exists
+        // and is tracked (it's commonly gitignored, which breaks CI).
+        $this->ensureBehatCiLocalSettings();
+
+        // Wire the Behat readme hint into .lando.yml post-start so `lando start`
+        // prints local-test instructions. Done surgically (append-only) rather
+        // than via the full YAML re-dump, which is intentionally disabled.
+        $this->ensureBehatReadmeLandoEvent();
+
         if ($this->isDrupalProject()) {
             $configSplitInstaller = new InstallConfigSplit($this->io, $this->findProjectRoot());
             $configSplitInstaller->install();
@@ -53,12 +63,20 @@ class Installer
         // Ensure destination directories exist
         $this->ensureDirectoryExists($destBase . '/.circleci');
         $this->ensureDirectoryExists($destBase . '/.ci/test/visual-regression');
+        $this->ensureDirectoryExists($destBase . '/.ci/test/behat');
         $this->ensureDirectoryExists($destBase . '/.ci/scripts');
         
-        // Copy CircleCI config
+        // Copy CircleCI config. config.yml is the dynamic-config ENTRYPOINT
+        // (setup: true) that detects Behat tests and continues into
+        // continue_config.yml, which holds the real pipeline — so BOTH files
+        // must ship together or the pipeline can't continue.
         $this->copyFile(
             $sourceBase . '/.circleci/config.yml',
             $destBase . '/.circleci/config.yml'
+        );
+        $this->copyFile(
+            $sourceBase . '/.circleci/continue_config.yml',
+            $destBase . '/.circleci/continue_config.yml'
         );
 
         // Skip .env.example copying for now
@@ -102,6 +120,12 @@ class Installer
             $sourceBase . '/scripts/post_multidev_url.sh',
             $destBase . '/.ci/scripts/post_multidev_url.sh'
         );
+        // Adds the multidev URL to the Jira issue sidebar as a remote link
+        // (called by build_and_deploy after the deploy).
+        $this->copyFile(
+            $sourceBase . '/scripts/post_multidev_jira_link.sh',
+            $destBase . '/.ci/scripts/post_multidev_jira_link.sh'
+        );
         $this->copyFile(
             $sourceBase . '/scripts/setup_vars.sh',
             $destBase . '/.ci/scripts/setup_vars.sh'
@@ -113,6 +137,65 @@ class Installer
         $this->copyFile(
             $sourceBase . '/scripts/detect_web_root.sh',
             $destBase . '/.ci/scripts/detect_web_root.sh'
+        );
+        // Shared "wait until the multidev is serving" guard. Run first in
+        // the test jobs (playwright, behat) so cold-start spin-up doesn't
+        // leak into per-test flake.
+        $this->copyFile(
+            $sourceBase . '/scripts/check-multidev.sh',
+            $destBase . '/.ci/scripts/check-multidev.sh'
+        );
+        // Pre-flight guard that aborts the pipeline early when Pantheon's
+        // multidev cap is reached (runs before build_and_deploy), instead of
+        // failing deep inside the deploy after a full build.
+        $this->copyFile(
+            $sourceBase . '/scripts/check-multidev-capacity.sh',
+            $destBase . '/.ci/scripts/check-multidev-capacity.sh'
+        );
+        // Behat: the behat_setup/behat_test jobs in continue_config.yml self-skip
+        // (circleci-agent step halt) unless the project ships a tests/behat
+        // directory.
+        //
+        // Tool-shipped (always overwritten — these are standardizable):
+        //   - install-drupal: auto-detects the install profile, installs THAT
+        //     profile by name, then imports the exported config on top (works
+        //     even for profiles with a hook_install(), which Drupal won't install
+        //     from config). The old per-project copies installed a generic
+        //     profile then config-import, which fails and loops forever on sites
+        //     with a custom install profile.
+        //   - readme.sh: local `lando behat` setup hint.
+        //   - chrome.sh: launches headless Chrome on :9515 for the DMore driver.
+        //   - run-tests-circle: the sharded CI runner (also enables CI-only
+        //     content modules by the *_test_content/_custom_content/_default_content
+        //     /_user_content convention).
+        //
+        // Still PROJECT-SUPPLIED (inherently project-specific): configure-site
+        // (theme build, file ownership) and run-tests (non-sharded fallback).
+        $this->copyFile(
+            $sourceBase . '/.ci/test/behat/install-drupal',
+            $destBase . '/.ci/test/behat/install-drupal'
+        );
+        // Local-dev helper: prints Chrome-for-Testing + `lando behat` setup
+        // instructions on `lando start` (wired into .lando.yml post-start by
+        // InstallConfigSplit). Self-silences when the project has no tests/behat.
+        $this->copyFile(
+            $sourceBase . '/.ci/test/behat/readme.sh',
+            $destBase . '/.ci/test/behat/readme.sh'
+        );
+        // Launches headless Chrome on :9515 in CI for Behat's DMore Chrome
+        // driver. The behat_test job runs it (if present) right before the Behat
+        // runner. Its baked-in Chrome path matches the tool's behat executor
+        // image (helloworlddevs/atdove-testing-image) — same as atdove uses.
+        $this->copyFile(
+            $sourceBase . '/.ci/test/behat/chrome.sh',
+            $destBase . '/.ci/test/behat/chrome.sh'
+        );
+        // Canonical sharded CI runner — always shipped (overwritten) so every
+        // project gets the same parallel sharding + CI-content-module enabling.
+        // The behat_test job prefers run-tests-circle over run-tests.
+        $this->copyFile(
+            $sourceBase . '/.ci/test/behat/run-tests-circle',
+            $destBase . '/.ci/test/behat/run-tests-circle'
         );
 
         // Copy test files
@@ -191,7 +274,8 @@ class Installer
         if (strpos($filename, '.sh') !== false || 
             strpos($filename, 'run-') === 0 || 
             strpos($filename, 'dev-multidev') === 0 || 
-            $filename === 'run-playwright') {
+            $filename === 'run-playwright' ||
+            $filename === 'install-drupal') {
             chmod($dest, 0755);
             $this->io->write(sprintf('  - Made executable: %s', str_replace(getcwd() . '/', '', $dest)));
         }
@@ -199,6 +283,339 @@ class Installer
         $this->io->write(sprintf('  - Copied: %s', str_replace(getcwd() . '/', '', $dest)));
     }
     
+    /**
+     * Ensure the local-install ("box") Behat CI settings.local.php exists and is
+     * tracked by git.
+     *
+     * The project-supplied .ci/test/behat/configure-site copies
+     * .ci/test/behat/env/settings.local.php into web/sites/default/ before
+     * installing Drupal. That file is almost always matched by a bare
+     * `settings.local.php` rule in the project's .gitignore, so it never gets
+     * committed and CI fails with "cp: cannot stat .../settings.local.php". We
+     * generate a sane CI default (circle_test DB, the project's site UUID so
+     * `drush config:import` doesn't fail on a UUID mismatch) and add a targeted
+     * negation to .gitignore so it's tracked.
+     *
+     * No-op for projects that don't use the box model (no configure-site that
+     * references settings.local.php), e.g. those running Behat against a
+     * deployed multidev.
+     *
+     * @return void
+     */
+    protected function ensureBehatCiLocalSettings()
+    {
+        $root = $this->findProjectRoot();
+        $configureSite = $root . '/.ci/test/behat/configure-site';
+
+        if (!is_file($configureSite)) {
+            return;
+        }
+        $configureContents = (string) @file_get_contents($configureSite);
+        if (strpos($configureContents, 'settings.local.php') === false) {
+            return;
+        }
+
+        $relPath = '.ci/test/behat/env/settings.local.php';
+        $settingsFile = $root . '/' . $relPath;
+
+        if (!is_file($settingsFile)) {
+            $this->ensureDirectoryExists(dirname($settingsFile));
+            $uuid = $this->detectSiteUuid($root);
+            $syncDir = $this->detectConfigSyncDir($root);
+            file_put_contents($settingsFile, $this->renderBehatLocalSettings($uuid, $syncDir));
+            if ($uuid === '') {
+                $this->io->write('  - WARNING: could not detect site UUID; set $settings[\'site_uuid\'] in ' . $relPath . ' or config:import will fail.');
+            }
+            $this->io->write(sprintf('  - Created Behat CI settings.local.php: %s', $relPath));
+        } else {
+            $this->io->write('  - Behat CI settings.local.php already present');
+        }
+
+        $this->ensurePathTracked($root, $relPath);
+    }
+
+    /**
+     * Ensure .lando.yml runs the Behat readme hint on `lando start`.
+     *
+     * The full Lando YAML rewrite (InstallConfigSplit::modifyLandoFile) is
+     * intentionally disabled because re-dumping the file drops comments and
+     * needs fragile quote post-processing. This does a minimal, idempotent,
+     * append-only edit: it inserts a single `appserver` item under the existing
+     * `post-start:` block, preserving the rest of the file verbatim.
+     *
+     * No-op when: the project has no tests/behat, there's no .lando.yml, the
+     * event is already wired, or there's no post-start block to extend.
+     *
+     * @return void
+     */
+    protected function ensureBehatReadmeLandoEvent()
+    {
+        $root = $this->findProjectRoot();
+
+        // Only wire the hint for projects that actually ship Behat tests.
+        if (!is_dir($root . '/tests/behat')) {
+            return;
+        }
+
+        $landoFile = $root . '/.lando.yml';
+        if (!is_file($landoFile)) {
+            return;
+        }
+
+        $contents = (string) file_get_contents($landoFile);
+        $marker = '.ci/test/behat/readme.sh';
+        if (strpos($contents, $marker) !== false) {
+            return; // Already wired.
+        }
+
+        $lines = explode("\n", $contents);
+        $insertIdx = null;
+        $itemIndent = null;
+
+        foreach ($lines as $i => $line) {
+            if (preg_match('/^(\s*)post-start:\s*$/', $line, $m)) {
+                $keyIndent = $m[1];
+                // Match the indentation of the existing first list item, if any
+                // (YAML allows items at the key's indent or deeper); default to
+                // the key's indent.
+                $itemIndent = $keyIndent;
+                for ($j = $i + 1; $j < count($lines); $j++) {
+                    if (trim($lines[$j]) === '') {
+                        continue;
+                    }
+                    if (preg_match('/^(\s*)-\s/', $lines[$j], $mm)) {
+                        $itemIndent = $mm[1];
+                    }
+                    break;
+                }
+                $insertIdx = $i + 1;
+                break;
+            }
+        }
+
+        if ($insertIdx === null) {
+            $this->io->write('  - Note: no post-start block in .lando.yml; skipped wiring the Behat readme hint.');
+            return;
+        }
+
+        $newLine = $itemIndent . '- appserver: bash /app/.ci/test/behat/readme.sh';
+        array_splice($lines, $insertIdx, 0, [$newLine]);
+
+        if (file_put_contents($landoFile, implode("\n", $lines)) === false) {
+            $this->io->writeError('  - Error: failed to wire the Behat readme hint into .lando.yml');
+            return;
+        }
+
+        $this->io->write('  - Wired the Behat readme hint into .lando.yml post-start');
+    }
+
+    /**
+     * Read the Drupal site UUID from the project's exported config.
+     *
+     * @param string $root Project root
+     * @return string UUID, or '' if not found
+     */
+    protected function detectSiteUuid($root)
+    {
+        $candidates = [
+            $root . '/config/sync/system.site.yml',
+            $root . '/config/default/system.site.yml',
+            $root . '/config/system.site.yml',
+        ];
+        foreach (glob($root . '/config/*/system.site.yml') ?: [] as $extra) {
+            $candidates[] = $extra;
+        }
+        foreach ($candidates as $file) {
+            if (!is_file($file)) {
+                continue;
+            }
+            try {
+                $data = \Symfony\Component\Yaml\Yaml::parseFile($file);
+                if (is_array($data) && !empty($data['uuid'])) {
+                    return (string) $data['uuid'];
+                }
+            } catch (\Throwable $e) {
+                // Ignore and try the next candidate.
+            }
+        }
+        return '';
+    }
+
+    /**
+     * Determine the config sync directory for settings.local.php.
+     *
+     * Prefers an explicit value from settings.php; falls back to the common
+     * Pantheon layout (config/ as a sibling of the web root).
+     *
+     * @param string $root Project root
+     * @return string
+     */
+    protected function detectConfigSyncDir($root)
+    {
+        foreach (['web/sites/default/settings.php', 'sites/default/settings.php'] as $rel) {
+            $file = $root . '/' . $rel;
+            if (is_file($file)) {
+                $contents = (string) @file_get_contents($file);
+                if (preg_match('/config_sync_directory[\'"\]\s]*=\s*[\'"]([^\'"]+)[\'"]/', $contents, $m)) {
+                    return $m[1];
+                }
+            }
+        }
+        return '../config/sync';
+    }
+
+    /**
+     * Render the CI settings.local.php contents.
+     *
+     * @param string $uuid    Site UUID ('' to omit)
+     * @param string $syncDir config_sync_directory value
+     * @return string
+     */
+    protected function renderBehatLocalSettings($uuid, $syncDir)
+    {
+        $uuidLine = $uuid !== ''
+            ? "\$settings['site_uuid'] = '" . $uuid . "';"
+            : "// NOTE: site UUID not auto-detected. Set \$settings['site_uuid'] to match\n// config/sync/system.site.yml or `drush config:import` will fail.";
+
+        $lines = [
+            '<?php',
+            '',
+            '// @codingStandardsIgnoreFile',
+            '',
+            '/**',
+            ' * @file',
+            ' * Configuration overrides for the site when running Behat in CircleCI.',
+            ' *',
+            ' * Generated by helloworlddevs/pantheon-ci-tools so configure-site can copy',
+            ' * it into web/sites/default/ in CI. Tracked intentionally (see the negation',
+            ' * added to .gitignore).',
+            ' */',
+            '',
+            "\$databases['default']['default'] = [",
+            "  'database'  => 'circle_test',",
+            "  'username'  => 'root',",
+            "  'password'  => 'root',",
+            "  'prefix'    => '',",
+            "  'host'      => '127.0.0.1',",
+            "  'port'      => '3306',",
+            "  'namespace' => 'Drupal\\\\Core\\\\Database\\\\Driver\\\\mysql',",
+            "  'driver'    => 'mysql',",
+            '];',
+            '',
+            "\$settings['hash_salt'] = 'lorem-ipsum-123';",
+            '',
+            "\$settings['trusted_host_patterns'] = [",
+            "  '^drupal-circleci-behat\\.localhost\$',",
+            '];',
+            '',
+            '// Some tests check for a Pantheon environment.',
+            "\$_ENV['PANTHEON_ENVIRONMENT'] = 'lando';",
+            '',
+            '// Disable CSS/JS aggregation.',
+            "\$config['system.performance']['css']['preprocess'] = FALSE;",
+            "\$config['system.performance']['js']['preprocess'] = FALSE;",
+            '',
+            '// Stabilize sessions/cache in CI. PANTHEON_ENVIRONMENT (set above) makes the',
+            "// project's settings.php enable the Pantheon integration, which points cache",
+            '// (and on some sites lock/flood) at Redis. Redis is not running in the',
+            '// CircleCI box, so anything backed by it becomes flaky and intermittently',
+            '// drops the logged-in session between Behat requests. Force the database',
+            '// (the `sessions` table for sessions, the cache_* tables for cache) so state',
+            '// persists deterministically.',
+            "\$settings['redis.connection']['interface'] = '';",
+            "\$settings['cache']['default'] = 'cache.backend.database';",
+            '',
+            "\$settings['file_temp_path'] = sys_get_temp_dir();",
+            "\$settings['config_sync_directory'] = '" . $syncDir . "';",
+            $uuidLine,
+            '',
+        ];
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Ensure a path is not gitignored, by appending a targeted negation to the
+     * project's root .gitignore when an existing pattern would ignore it.
+     *
+     * @param string $root    Project root
+     * @param string $relPath Project-relative path to keep tracked
+     * @return void
+     */
+    protected function ensurePathTracked($root, $relPath)
+    {
+        $gitignore = $root . '/.gitignore';
+        $negation = '!/' . $relPath;
+        $existing = is_file($gitignore) ? (string) file_get_contents($gitignore) : '';
+        $lines = preg_split('/\R/', $existing) ?: [];
+
+        foreach ($lines as $line) {
+            $trimmed = trim($line);
+            if ($trimmed === $negation || $trimmed === '!' . $relPath) {
+                return; // Already un-ignored.
+            }
+        }
+
+        if (!$this->isIgnoredByPatterns($lines, $relPath)) {
+            return; // Nothing ignores it; leave .gitignore untouched.
+        }
+
+        $prefix = ($existing === '' || substr($existing, -1) === "\n") ? '' : "\n";
+        $append = $prefix
+            . "\n# Keep the Behat CI settings.local.php tracked (configure-site copies it in CI).\n"
+            . $negation . "\n";
+
+        file_put_contents($gitignore, $existing . $append);
+        $this->io->write(sprintf('  - Un-ignored %s in .gitignore', $relPath));
+    }
+
+    /**
+     * Heuristic check of whether .gitignore lines would ignore a relative path.
+     *
+     * Handles the common cases (bare basename rules like `settings.local.php`,
+     * and slash-anchored path globs), honoring later-line precedence and `!`
+     * negations the way git does.
+     *
+     * @param array  $lines   .gitignore lines
+     * @param string $relPath Project-relative path
+     * @return bool
+     */
+    protected function isIgnoredByPatterns(array $lines, $relPath)
+    {
+        $base = basename($relPath);
+        $ignored = false;
+
+        foreach ($lines as $line) {
+            $pattern = trim($line);
+            if ($pattern === '' || $pattern[0] === '#') {
+                continue;
+            }
+            $negated = false;
+            if ($pattern[0] === '!') {
+                $negated = true;
+                $pattern = ltrim(substr($pattern, 1));
+            }
+            $pattern = rtrim($pattern, '/');
+            if ($pattern === '') {
+                continue;
+            }
+
+            $matches = false;
+            if (strpos($pattern, '/') !== false) {
+                $anchored = ltrim($pattern, '/');
+                $matches = fnmatch($anchored, $relPath, FNM_PATHNAME) || fnmatch($anchored, $relPath);
+            } else {
+                $matches = fnmatch($pattern, $base);
+            }
+
+            if ($matches) {
+                $ignored = !$negated;
+            }
+        }
+
+        return $ignored;
+    }
+
     /**
      * Find the project root directory
      * 
