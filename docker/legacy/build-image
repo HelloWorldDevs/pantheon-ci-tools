@@ -1,0 +1,43 @@
+#!/bin/bash
+# ARCHIVED — copied verbatim from ~/Sites/atdove/build-image on 2026-09-11.
+# Built and pushed helloworlddevs/atdove-testing-image. Superseded by ../behat/.
+#
+
+# Step 0: Generate the version tag using the current date and time (e.g., v1.20240907)
+VERSION_TAG=$(date +v1.%Y%m%d%H%M%S)
+
+# Step 1: Build the Docker image for local architecture (e.g., linux/amd64) and load it into the local Docker daemon
+echo "Building Docker image for local architecture (staging)..."
+docker buildx build --platform linux/amd64 -t helloworlddevs/atdove-testing-image:$VERSION_TAG --load .
+
+# Step 2: Check if the image was built and loaded successfully
+if docker image inspect helloworlddevs/atdove-testing-image:$VERSION_TAG >/dev/null 2>&1; then
+  echo "Docker image built and loaded successfully."
+else
+  echo "Error: Docker image was not loaded locally."
+  exit 1
+fi
+
+# Step 3: Run the container with the locally loaded image
+echo "Running the container..."
+docker run -d --name my-running-site helloworlddevs/atdove-testing-image:$VERSION_TAG
+
+# Step 4: Wait for the container to set up (adjust time based on your setup needs)
+echo "Waiting for the container to set up..."
+sleep 20 # Adjust this as necessary depending on the services' startup time
+
+# Step 5: Commit the running container to a new image (final image)
+echo "Committing the running container to a new image..."
+docker commit my-running-site helloworlddevs/atdove-testing-image:$VERSION_TAG
+docker commit my-running-site helloworlddevs/atdove-testing-image:latest
+
+# Step 6: Push the final multi-platform image to Docker registry using buildx
+echo "Pushing the final multi-platform image to Docker registry..."
+docker buildx build --platform linux/amd64,linux/arm64 -t helloworlddevs/atdove-testing-image:$VERSION_TAG -t helloworlddevs/atdove-testing-image:latest --push .
+
+# Step 7: Clean up the running container
+echo "Stopping and removing the running container..."
+docker stop my-running-site
+docker rm my-running-site
+
+echo "Process completed! Image version: $VERSION_TAG"

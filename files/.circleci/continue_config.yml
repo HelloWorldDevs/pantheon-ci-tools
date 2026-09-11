@@ -10,6 +10,12 @@ parameters:
     # this to 1 when the project has no tests/behat, so behat_test provisions a
     # single box that halts instead of 12.
     default: 12
+  php_version:
+    type: string
+    # PHP minor (e.g. "8.2", "8.3") read from the project's pantheon.yml by the
+    # setup config, so every executor below runs the same PHP the site runs on
+    # Pantheon. Default only applies to direct/manual runs of this file.
+    default: "8.2"
 
 orbs:
   jira: circleci/jira@2.2.0
@@ -19,7 +25,9 @@ orbs:
 executors:
   pantheon:
     docker:
-    - image: quay.io/pantheon-public/build-tools-ci:8.x-php8.3
+    # PHP minor follows pantheon.yml (see php_version). build-tools-ci 8.x
+    # publishes php8.1 / 8.2 / 8.3 tags; there is no 8.x-php8.4 (that's 9.x).
+    - image: quay.io/pantheon-public/build-tools-ci:8.x-php<< pipeline.parameters.php_version >>
     working_directory: ~/project
 
   # Playwright VRT executor. Uses the official Playwright image (browsers + OS
@@ -38,20 +46,26 @@ executors:
     - image: ghcr.io/helloworlddevs/playwright:v1.52.0-noble
     working_directory: ~/project
 
-  # Behat executor: a Drupal/PHP testing image PLUS a MariaDB service container.
-  # The MariaDB image is what makes `dockerize -wait tcp://localhost:3306` work —
-  # it's the database listening on localhost:3306. The default `pantheon`
-  # executor is a single image with NO db service, which is why dockerize there
-  # hangs the full timeout and fails.
+  # Behat executor: CircleCI's stock PHP image (`-browsers` variant) PLUS a
+  # MariaDB service container. No custom image is published or maintained —
+  # see docker/behat/README.md in helloworlddevs/pantheon-ci-tools for the
+  # decision record.
   #
-  # The testing image ships dockerize, apache, drush, composer, chromium and
-  # chromedriver. It MUST run PHP >= 8.2: projects pull symfony/config v7 and
-  # behat 3.31, which use 8.2-only syntax (DNF types) and fail to even parse on
-  # PHP 8.1. v2 bumps the base from drupal:7.101-php8.1 to
-  # drupal:10-php8.2-apache-bullseye (see ~/Sites/atdove/Dockerfile).
+  # cimg/php:<ver>-browsers ships PHP (gd, pdo_mysql, mbstring, xml, curl,
+  # bcmath, zip, intl), composer, git, sudo, dockerize, jq, node and Google
+  # Chrome. The only things it lacks that the Behat jobs need are a MySQL
+  # client (installed by the `install_behat_deps` command, ~15s) and a web
+  # server (PHP's built-in server via the `serve_drupal` command — Drupal core
+  # ships web/.ht.router.php for exactly this).
+  #
+  # The MariaDB image is what makes `dockerize -wait tcp://localhost:3306` work —
+  # it's the database listening on localhost:3306.
+  #
+  # The PHP minor follows the project's pantheon.yml (php_version parameter);
+  # cimg/php maintains 8.1 through 8.4 tags.
   behat:
     docker:
-    - image: helloworlddevs/atdove-testing-image:v2
+    - image: cimg/php:<< pipeline.parameters.php_version >>-browsers
     - image: cimg/mariadb:10.6
       environment:
         MYSQL_ROOT_HOST: "%"
@@ -60,14 +74,95 @@ executors:
         MYSQL_PASSWORD: root
         MYSQL_USER: user
         DRUPAL_DB_HOST: 127.0.0.1
-    working_directory: /var/www/project
+    # cimg images run as the unprivileged `circleci` user, whose home is the
+    # only writable place at job start. `prepare_behat_box` symlinks
+    # /var/www/project -> here so project files that still hardcode the old
+    # absolute path (e.g. FailAid's screenshot dir in behat.yml) keep working.
+    working_directory: ~/project
     environment:
       TZ: "/usr/share/zoneinfo/America/Los_Angeles"
       ADMIN_USERNAME: admin
       ADMIN_PASSWORD: admin
-      # Headless Chromium (for @javascript scenarios) warns and can misbehave
+      # Headless Chrome (for @javascript scenarios) warns and can misbehave
       # when XDG_RUNTIME_DIR is unset. Give it a writable runtime dir.
       XDG_RUNTIME_DIR: /tmp/runtime-dir
+
+# Reusable steps for the behat executor. These replace what the old custom
+# image used to bake in, so the executor can be a stock image.
+commands:
+  install_behat_deps:
+    description: Install the one package cimg/php lacks that the Behat jobs need.
+    steps:
+    - run:
+        name: Install MariaDB client
+        command: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends mariadb-client
+          mysql --version
+
+  prepare_behat_box:
+    description: PHP ini overrides + legacy /var/www/project path shim.
+    steps:
+    - run:
+        name: Setting PHP vars
+        command: |
+          # cimg/php compiles PHP with its own scan dir (/etc/php.d), NOT the
+          # docker-php /usr/local/etc/php/conf.d the old image used. Ask PHP
+          # where it looks instead of hardcoding either.
+          PHP_INI_SCAN_DIR="$(php -r 'echo PHP_CONFIG_FILE_SCAN_DIR;')"
+          echo "PHP ini scan dir: ${PHP_INI_SCAN_DIR}"
+          sudo mkdir -p "${PHP_INI_SCAN_DIR}"
+          printf 'memory_limit = -1\n' | sudo tee "${PHP_INI_SCAN_DIR}/zz-ci-memory.ini"
+          printf 'display_errors = On\ndisplay_startup_errors = On\nerror_reporting = E_ALL\n' \
+            | sudo tee "${PHP_INI_SCAN_DIR}/zz-ci-display-errors.ini"
+          php -r 'echo "memory_limit=", ini_get("memory_limit"), "\n";'
+    - run:
+        name: Alias /var/www/project to the working directory
+        command: |
+          # The old image ran jobs at /var/www/project and some project files
+          # (tests/behat/behat.yml FailAid screenshot dir, older configure-site
+          # copies) still hardcode that path. Keep them working without edits.
+          sudo mkdir -p /var/www
+          sudo ln -sfn "${PWD}" /var/www/project
+          ls -ld /var/www/project
+
+  serve_drupal:
+    description: Serve the local Drupal install on drupal-circleci-behat.localhost:80.
+    steps:
+    - run:
+        name: Serve Drupal (PHP built-in server + core router)
+        # Replaces the old "Setup Apache" step. Bound to :80 as root so
+        # behat.yml's base_url and settings.local.php's trusted_host_patterns
+        # (http://drupal-circleci-behat.localhost) stay exactly as they were.
+        # The built-in server ignores .htaccess; Drupal's .ht.router.php covers
+        # clean URLs, index.php fallthrough and static files.
+        background: true
+        command: |
+          echo "127.0.0.1 drupal-circleci-behat.localhost" | sudo tee -a /etc/hosts >/dev/null
+          WEB="${WEB_ROOT:-}"
+          if [ -z "${WEB}" ]; then
+            if [ -d web ]; then WEB=web; elif [ -d html ]; then WEB=html; else WEB=.; fi
+          fi
+          cd "${WEB}"
+          if [ ! -f .ht.router.php ]; then
+            echo "ERROR: ${WEB}/.ht.router.php not found (Drupal core scaffold ships it)." >&2
+            exit 1
+          fi
+          echo "Serving ${PWD} on http://drupal-circleci-behat.localhost/"
+          exec sudo env PHP_CLI_SERVER_WORKERS=8 php -S 0.0.0.0:80 .ht.router.php
+    - run:
+        name: Wait for web server
+        command: |
+          for i in $(seq 1 30); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' http://drupal-circleci-behat.localhost/ || true)"
+            if [ -n "${code}" ] && [ "${code}" != "000" ]; then
+              echo "Web server up (HTTP ${code})"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "ERROR: web server did not answer within 30s" >&2
+          exit 1
 
 defaults: &defaults
   executor: pantheon
@@ -668,15 +763,9 @@ jobs:
             echo "No tests/behat directory in this project — skipping Behat setup."
             circleci-agent step halt
           fi
-    # (No XVFB here — setup is all CLI work; Chrome/XVFB only run in behat_test.)
-    - run:
-        name: Setting PHP vars
-        command: |
-          echo 'memory_limit = -1' | sudo tee -a /usr/local/etc/php/conf.d/docker-php-memlimit.ini
-          echo 'memory_limit = -1' | sudo tee -a /usr/local/etc/php/conf.d/memory.ini
-          echo "display_errors = On" | sudo tee /usr/local/etc/php/conf.d/display_errors.ini
-          echo "display_startup_errors = On" | sudo tee -a /usr/local/etc/php/conf.d/display_errors.ini
-          echo "error_reporting = E_ALL" | sudo tee -a /usr/local/etc/php/conf.d/display_errors.ini
+    # (No browser here — setup is all CLI work; Chrome only runs in behat_test.)
+    - prepare_behat_box
+    - install_behat_deps
     # Behat runs against a LOCAL Drupal install (its own DB), independent of the
     # Pantheon deploy — so we build vendor/ here rather than relying on a
     # persisted build artifact (this pipeline's build_and_deploy doesn't ship
@@ -830,19 +919,10 @@ jobs:
     # Pull the built tree + DB dump from behat_setup into the working dir.
     - attach_workspace:
         at: .
-    - run:
-        name: Start XVFB
-        command: |
-          export DISPLAY=:99.0
-          Xvfb :99 -screen 0 1280x1024x16 &
-    - run:
-        name: Setting PHP vars
-        command: |
-          echo 'memory_limit = -1' | sudo tee -a /usr/local/etc/php/conf.d/docker-php-memlimit.ini
-          echo 'memory_limit = -1' | sudo tee -a /usr/local/etc/php/conf.d/memory.ini
-          echo "display_errors = On" | sudo tee /usr/local/etc/php/conf.d/display_errors.ini
-          echo "display_startup_errors = On" | sudo tee -a /usr/local/etc/php/conf.d/display_errors.ini
-          echo "error_reporting = E_ALL" | sudo tee -a /usr/local/etc/php/conf.d/display_errors.ini
+    # (No Xvfb: chrome.sh launches Chrome with --headless, so no display is
+    # ever used. The old image's Xvfb step was inert.)
+    - prepare_behat_box
+    - install_behat_deps
     - run:
         name: Create DB and import pre-installed database
         command: |
@@ -869,26 +949,17 @@ jobs:
           fi
     - run:
         name: Create artifact dir
-        command: cd /var/www/project && mkdir -p ./tests/behat/results && mkdir -p ./tests/behat/results/junit
+        command: mkdir -p ./tests/behat/results/junit
 
     - run:
         name: Globbing Behat tests
         command: |
           echo $(circleci tests glob "tests/behat/features/*")
           circleci tests glob "tests/behat/features/*" | xargs -n 1 echo
-    - run:
-        name: Setup Apache
-        command: |
-          [ -f /var/run/apache2/apache2.pid ] && sudo rm /var/run/apache2/apache2.pid
-          [ -f /var/lock/apache2/apache2.pid ] && sudo rm /var/lock/apache2/apache2.pid
-          sudo service apache2 start
-          echo 127.0.0.1 drupal-circleci-behat.localhost | sudo tee -a /etc/hosts
-          sudo service apache2 restart
+    - serve_drupal
     - run:
         name: Trigger page load to initialize H5P libraries
         command: |
-          # Wait for Apache to be fully ready
-          sleep 2
           # Make a request to the homepage to trigger Drupal bootstrap and H5P library initialization
           curl -s -o /dev/null -w "%{http_code}" http://drupal-circleci-behat.localhost/ || echo "Page load triggered (exit code $?)"
     - run:
