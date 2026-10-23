@@ -14,10 +14,11 @@
 # If URL is omitted, falls back to $MULTIDEV_SITE_URL.
 #
 # Tunables (env):
-#   CHECK_MULTIDEV_ATTEMPTS  number of polls before giving up   (default 30)
-#   CHECK_MULTIDEV_SLEEP     seconds between polls               (default 10)
+#   CHECK_MULTIDEV_ATTEMPTS  number of polls before giving up   (default 180)
+#   CHECK_MULTIDEV_SLEEP     seconds between polls               (default 20)
 #   CHECK_MULTIDEV_TIMEOUT   per-request curl --max-time seconds (default 30)
-# Defaults give a ceiling of ~5 minutes (30 × 10s).
+# Defaults give a ceiling of 60 minutes (180 × 20s). A freshly created
+# multidev can take well over the old 5-minute ceiling to come up.
 
 set -euo pipefail
 
@@ -28,8 +29,8 @@ if [ -z "${URL}" ]; then
   exit 1
 fi
 
-MAX_ATTEMPTS="${CHECK_MULTIDEV_ATTEMPTS:-30}"
-SLEEP_SECONDS="${CHECK_MULTIDEV_SLEEP:-10}"
+MAX_ATTEMPTS="${CHECK_MULTIDEV_ATTEMPTS:-180}"
+SLEEP_SECONDS="${CHECK_MULTIDEV_SLEEP:-20}"
 REQ_TIMEOUT="${CHECK_MULTIDEV_TIMEOUT:-30}"
 
 echo "Waiting for ${URL} to be ready (up to $((MAX_ATTEMPTS * SLEEP_SECONDS))s)..."
