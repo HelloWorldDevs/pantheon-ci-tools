@@ -20,6 +20,25 @@ if [[ -z "${LANDO_INFO}" ]]; then
     exit 1
 fi
 
+# Resolve the Drupal web root. Projects use either web/ or html/ (composer
+# drupal-scaffold web-root), so never hardcode one. Lando exports
+# LANDO_WEBROOT for the appserver; fall back to probing for sites/default.
+WEBROOT="${LANDO_WEBROOT:-}"
+if [[ -z "${WEBROOT}" || ! -d "${WEBROOT}/sites/default" ]]; then
+    WEBROOT=""
+    for candidate in /app/web /app/html; do
+        if [[ -d "${candidate}/sites/default" ]]; then
+            WEBROOT="${candidate}"
+            break
+        fi
+    done
+fi
+if [[ -z "${WEBROOT}" ]]; then
+    echo -e "${RED}ERROR: could not find the Drupal web root (tried \$LANDO_WEBROOT, /app/web, /app/html).${NORMAL}"
+    exit 1
+fi
+SETTINGS_LOCAL="${WEBROOT}/sites/default/settings.local.php"
+
 wait_for_database() {
     echo -e "${YELLOW}⏳ Waiting for database to be ready...${NORMAL}"
     local max_attempts=30
@@ -70,28 +89,31 @@ case "$ACTION" in
         # Use settings.local.php override (more persistent across DB pulls)
         echo -e "${YELLOW}Configuring dev split in settings.local.php...${NORMAL}"
 
-        # Ensure settings.local.php exists
-        if [[ ! -f "/app/html/sites/default/settings.local.php" ]]; then
-            cp /app/html/sites/default/default.settings.local.php /app/html/sites/default/settings.local.php
+        # Ensure settings.local.php exists (seed from Drupal's default if present).
+        if [[ ! -f "${SETTINGS_LOCAL}" ]]; then
+            if [[ -f "${WEBROOT}/sites/default/default.settings.local.php" ]]; then
+                cp "${WEBROOT}/sites/default/default.settings.local.php" "${SETTINGS_LOCAL}"
+            else
+                printf '<?php\n' > "${SETTINGS_LOCAL}"
+            fi
         fi
+        echo "Using ${SETTINGS_LOCAL}"
 
-        # Use PHP to safely modify the settings file
-        php -r "
-        \$file = '/app/html/sites/default/settings.local.php';
-        \$content = file_get_contents(\$file);
-
-        // Add config split overrides if they don't exist
-        if (strpos(\$content, 'config_split.config_split.dev') === false) {
-            \$content .= PHP_EOL . '// Enable dev config split' . PHP_EOL;
-            \$content .= '\$config[\"config_split.config_split.dev\"][\"status\"] = TRUE;' . PHP_EOL;
+        # Use PHP to safely modify the settings file. Path comes in via env so
+        # the PHP snippet stays single-quoted (no bash escaping of $).
+        SETTINGS_LOCAL="${SETTINGS_LOCAL}" php -r '
+        $file = getenv("SETTINGS_LOCAL");
+        $content = file_get_contents($file);
+        $on  = "\$config[\"config_split.config_split.dev\"][\"status\"] = TRUE;";
+        $re  = "/\\\$config\\[.config_split\\.config_split\\.dev.\\]\\[.status.\\] = (TRUE|FALSE);/";
+        if (preg_match($re, $content)) {
+            $content = preg_replace($re, $on, $content);
         } else {
-            // Update existing entries
-            \$content = preg_replace('/\\\$config\[.config_split\.config_split\.dev.\]\[.status.\] = FALSE;/', '\$config[\"config_split.config_split.dev\"][\"status\"] = TRUE;', \$content);
+            $content .= PHP_EOL . "// Enable dev config split" . PHP_EOL . $on . PHP_EOL;
         }
-
-        file_put_contents(\$file, \$content);
-        echo 'Settings updated successfully';
-        "
+        file_put_contents($file, $content);
+        echo "Settings updated successfully", PHP_EOL;
+        '
 
         # Clear cache and activate
         drush cr
@@ -107,15 +129,17 @@ case "$ACTION" in
     "disable")
         echo -e "${YELLOW}🔧 Disabling dev config split...${NORMAL}"
 
-        # Remove from settings.local.php
-        if [[ -f "/app/html/sites/default/settings.local.php" ]]; then
-            php -r "
-            \$file = '/app/html/sites/default/settings.local.php';
-            \$content = file_get_contents(\$file);
-            \$content = preg_replace('/\\\$config\[.config_split\.config_split\.dev.\]\[.status.\] = TRUE;/', '\$config[\"config_split.config_split.dev\"][\"status\"] = FALSE;', \$content);
-            file_put_contents(\$file, \$content);
-            echo 'Settings updated successfully';
-            "
+        # Flip the override off in settings.local.php (if present).
+        if [[ -f "${SETTINGS_LOCAL}" ]]; then
+            SETTINGS_LOCAL="${SETTINGS_LOCAL}" php -r '
+            $file = getenv("SETTINGS_LOCAL");
+            $content = file_get_contents($file);
+            $off = "\$config[\"config_split.config_split.dev\"][\"status\"] = FALSE;";
+            $re  = "/\\\$config\\[.config_split\\.config_split\\.dev.\\]\\[.status.\\] = TRUE;/";
+            $content = preg_replace($re, $off, $content);
+            file_put_contents($file, $content);
+            echo "Settings updated successfully", PHP_EOL;
+            '
         fi
 
         drush config-split:deactivate dev -y 2>/dev/null || echo "Config split already inactive"
