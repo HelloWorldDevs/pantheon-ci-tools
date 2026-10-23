@@ -397,7 +397,10 @@ jobs:
     - run:
         name: Deploying to Pantheon
         command: ./.ci/scripts/dev-multidev.sh
-        no_output_timeout: 40m
+        # build:env:create / build:env:push can sit silent for a long time
+        # while Pantheon provisions a new multidev. CircleCI kills a step
+        # after this much time with NO output, so give creation an hour.
+        no_output_timeout: 60m
     - run:
         name: Post Multidev URL to GitHub PR
         command: ./.ci/scripts/post_multidev_url.sh
