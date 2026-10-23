@@ -78,6 +78,9 @@ executors:
     # only writable place at job start. `prepare_behat_box` symlinks
     # /var/www/project -> here so project files that still hardcode the old
     # absolute path (e.g. FailAid's screenshot dir in behat.yml) keep working.
+    # Everything in the Behat jobs (composer, drush, the web server, Behat
+    # itself) runs as that same user so files written by one are deletable
+    # by the others — see the serve_drupal command.
     working_directory: ~/project
     environment:
       TZ: "/usr/share/zoneinfo/America/Los_Angeles"
@@ -131,11 +134,19 @@ commands:
     steps:
     - run:
         name: Serve Drupal (PHP built-in server + core router)
-        # Replaces the old "Setup Apache" step. Bound to :80 as root so
-        # behat.yml's base_url and settings.local.php's trusted_host_patterns
+        # Replaces the old "Setup Apache" step. Bound to :80 so behat.yml's
+        # base_url and settings.local.php's trusted_host_patterns
         # (http://drupal-circleci-behat.localhost) stay exactly as they were.
         # The built-in server ignores .htaccess; Drupal's .ht.router.php covers
         # clean URLs, index.php fallthrough and static files.
+        #
+        # The server MUST run as the same user as Behat (circleci), NOT root.
+        # Scenarios make the site write files (h5p exports, generated images,
+        # uploads) and AfterScenario teardown hooks delete them; a root-run
+        # server leaves root-owned files the circleci user can't unlink and
+        # the hook fails even though every step passed. Port 80 is the only
+        # reason root was tempting, so grant just that one privilege to the
+        # PHP binary (cap_net_bind_service) and run unprivileged.
         background: true
         command: |
           echo "127.0.0.1 drupal-circleci-behat.localhost" | sudo tee -a /etc/hosts >/dev/null
@@ -148,8 +159,12 @@ commands:
             echo "ERROR: ${WEB}/.ht.router.php not found (Drupal core scaffold ships it)." >&2
             exit 1
           fi
-          echo "Serving ${PWD} on http://drupal-circleci-behat.localhost/"
-          exec sudo env PHP_CLI_SERVER_WORKERS=8 php -S 0.0.0.0:80 .ht.router.php
+          PHP_BIN="$(readlink -f "$(command -v php)")"
+          command -v setcap >/dev/null 2>&1 || sudo apt-get install -y -qq libcap2-bin >/dev/null
+          sudo setcap 'cap_net_bind_service=+ep' "${PHP_BIN}"
+          echo "Granted $(getcap "${PHP_BIN}")"
+          echo "Serving ${PWD} on http://drupal-circleci-behat.localhost/ as $(whoami)"
+          exec env PHP_CLI_SERVER_WORKERS=8 php -S 0.0.0.0:80 .ht.router.php
     - run:
         name: Wait for web server
         command: |

@@ -63,10 +63,15 @@ the package. No image is pulled from our registry.
      still hardcode the old absolute path (e.g. FailAid's screenshot dir in
      `tests/behat/behat.yml`) keep working without edits.
    - `serve_drupal` — replaces "Setup Apache". Runs PHP's built-in server with
-     Drupal core's `.ht.router.php` on `:80` as root (background step), so
+     Drupal core's `.ht.router.php` on `:80` (background step), so
      `behat.yml`'s `base_url` and `settings.local.php`'s `trusted_host_patterns`
      (`http://drupal-circleci-behat.localhost`) are unchanged. Followed by a
-     30s readiness wait.
+     30s readiness wait. It runs **as the `circleci` user, not root**: port 80
+     is granted via `setcap cap_net_bind_service` on the PHP binary. This
+     matters — Behat teardown hooks delete files the site wrote during
+     scenarios (h5p exports, uploads); a root-run server leaves root-owned
+     files the `circleci` user can't unlink and the hook fails after every
+     step passed (first seen on atdove's `learning_path_attempt_limits`).
 4. **`chrome.sh`** resolves the browser at runtime (`google-chrome` on PATH,
    then `chromium`, then the legacy `/chrome/linux-*/` layout, or `CHROME_BIN`)
    instead of a hardcoded Chrome-for-Testing 128 path. Also unpins Chrome.
@@ -76,8 +81,9 @@ the package. No image is pulled from our registry.
 
 `tests/behat/behat.yml`, `.ci/test/behat/env/settings.local.php`,
 `configure-site`, `install-drupal`, `run-tests-circle` — all untouched. The
-`sudo chown -R www-data` in `configure-site` is harmless (the user exists on
-Ubuntu) but unnecessary now that the server runs as root.
+`sudo chown -R www-data` + `chmod -R 777` in `configure-site` is harmless: the
+777 lets the circleci-run server write there, and anything it creates is
+circleci-owned.
 
 ### Known trade-off
 
