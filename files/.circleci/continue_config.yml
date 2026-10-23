@@ -164,7 +164,38 @@ commands:
           sudo setcap 'cap_net_bind_service=+ep' "${PHP_BIN}"
           echo "Granted $(getcap "${PHP_BIN}")"
           echo "Serving ${PWD} on http://drupal-circleci-behat.localhost/ as $(whoami)"
-          exec env PHP_CLI_SERVER_WORKERS=8 php -S 0.0.0.0:80 .ht.router.php
+          # Don't `exec` the server. A background step that is still running
+          # when the job's last step finishes gets killed by CircleCI and the
+          # job is labelled "Build cancelled". Instead: run the server as a
+          # child, exit 0 when told to stop, and have `stop_drupal_server`
+          # (when: always, right after the Behat run) send that signal so
+          # this step ends cleanly before the job does.
+          env PHP_CLI_SERVER_WORKERS=8 php -S 0.0.0.0:80 .ht.router.php &
+          SERVER_PID=$!
+          trap 'echo "Stopping web server (pid ${SERVER_PID})..."; kill "${SERVER_PID}" 2>/dev/null || true; wait "${SERVER_PID}" 2>/dev/null || true; echo "Web server stopped."; exit 0' TERM INT
+          wait "${SERVER_PID}" || true
+          echo "Web server exited."
+          exit 0
+
+  stop_drupal_server:
+    description: Stop the built-in web server so the background step ends with exit 0.
+    steps:
+    - run:
+        name: Stop Drupal web server
+        when: always
+        command: |
+          # Signal the serve_drupal wrapper (it traps TERM and exits 0). Target
+          # the wrapper's php child; killing it also returns the wrapper's wait.
+          if pgrep -f 'php -S 0.0.0.0:80' >/dev/null 2>&1; then
+            pkill -TERM -f 'php -S 0.0.0.0:80' || true
+            for i in 1 2 3 4 5; do
+              pgrep -f 'php -S 0.0.0.0:80' >/dev/null 2>&1 || break
+              sleep 1
+            done
+            echo "Web server stopped."
+          else
+            echo "Web server was not running."
+          fi
     - run:
         name: Wait for web server
         command: |
@@ -1009,6 +1040,10 @@ jobs:
     # store_artifacts/store_test_results run even after a failed step by default,
     # so results/logs (what the Slack message points to) land on failure too —
     # no `when` needed (and `when` is redundant on these step types).
+    # Stop the background web server BEFORE the job ends. Otherwise CircleCI
+    # kills the still-running serve_drupal step at teardown and labels the job
+    # "Build cancelled" even though every foreground step passed.
+    - stop_drupal_server
     - store_artifacts:
         path: ./tests/behat/results
         destination: artifacts
