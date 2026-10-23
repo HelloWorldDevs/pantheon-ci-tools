@@ -176,6 +176,19 @@ commands:
           wait "${SERVER_PID}" || true
           echo "Web server exited."
           exit 0
+    - run:
+        name: Wait for web server
+        command: |
+          for i in $(seq 1 30); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' http://drupal-circleci-behat.localhost/ || true)"
+            if [ -n "${code}" ] && [ "${code}" != "000" ]; then
+              echo "Web server up (HTTP ${code})"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "ERROR: web server did not answer within 30s" >&2
+          exit 1
 
   stop_drupal_server:
     description: Stop the built-in web server so the background step ends with exit 0.
@@ -196,19 +209,6 @@ commands:
           else
             echo "Web server was not running."
           fi
-    - run:
-        name: Wait for web server
-        command: |
-          for i in $(seq 1 30); do
-            code="$(curl -s -o /dev/null -w '%{http_code}' http://drupal-circleci-behat.localhost/ || true)"
-            if [ -n "${code}" ] && [ "${code}" != "000" ]; then
-              echo "Web server up (HTTP ${code})"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "ERROR: web server did not answer within 30s" >&2
-          exit 1
 
 defaults: &defaults
   executor: pantheon
