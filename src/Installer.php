@@ -112,6 +112,14 @@ class Installer
             $sourceBase . '/github/pr-comments-to-jira.yml',
             $destBase . '/.github/workflows/pr-comments-to-jira.yml'
         );
+        // Nightly prod→repo config drift check. Exports live config, diffs it
+        // against the default branch's config sync dir and opens/refreshes a
+        // PR tagging vars.PROJECT_LEAD. Self-skips on non-Drupal projects.
+        // Needs secrets.PANTHEON_SSH_KEY in addition to TERMINUS_TOKEN.
+        $this->copyFile(
+            $sourceBase . '/github/prod-config-drift.yml',
+            $destBase . '/.github/workflows/prod-config-drift.yml'
+        );
         $this->copyFile(
             $sourceBase . '/scripts/dev-multidev.sh',
             $destBase . '/.ci/scripts/dev-multidev.sh'

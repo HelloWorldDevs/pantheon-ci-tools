@@ -1,0 +1,181 @@
+name: Prod Config Drift
+
+# Nightly: export the LIVE environment's active Drupal config, compare it with
+# the default branch's config sync directory, and if they differ open (or
+# refresh) a pull request that brings the repo back in line with prod, tagging
+# the project lead. Installed by helloworlddevs/pantheon-ci-tools.
+#
+# Required repo configuration:
+#   secrets.TERMINUS_TOKEN     Pantheon machine token (same one the multidev
+#                              cleanup workflow uses).
+#   secrets.PANTHEON_SSH_KEY   Private SSH key whose public half is added to a
+#                              Pantheon user with access to the site. Needed
+#                              because `terminus drush` / `terminus rsync` go
+#                              over SSH, not the API.
+#   vars.PANTHEON_SITE         Pantheon site machine name.
+#   vars.PROJECT_LEAD          GitHub username (or org/team slug) to request
+#                              review from and @mention. Optional but intended.
+# Optional:
+#   vars.CONFIG_SYNC_DIR       Default config/sync.
+#   secrets.DRIFT_PR_TOKEN     A PAT to open the PR with instead of GITHUB_TOKEN.
+#                              Use it if your org blocks Actions from creating
+#                              PRs, or if you need the PR to trigger other
+#                              GitHub Actions workflows (GITHUB_TOKEN-created
+#                              PRs never do; CircleCI is unaffected).
+
+on:
+  schedule:
+    # Midnight America/Los_Angeles is 08:00 UTC in winter (PST) and 07:00 UTC in
+    # summer (PDT). Cron is UTC-only, so this runs at 00:00 PST / 01:00 PDT.
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: prod-config-drift
+  cancel-in-progress: false
+
+jobs:
+  drift:
+    name: Compare live config with ${{ github.event.repository.default_branch }}
+    runs-on: ubuntu-latest
+    env:
+      TERMINUS_SITE: ${{ vars.PANTHEON_SITE }}
+      CONFIG_SYNC_DIR: ${{ vars.CONFIG_SYNC_DIR || 'config/sync' }}
+      PROJECT_LEAD: ${{ vars.PROJECT_LEAD }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      DRIFT_BRANCH: prod-config-drift
+      REPORT_FILE: /tmp/prod-config-drift.md
+      GH_TOKEN: ${{ secrets.DRIFT_PR_TOKEN || secrets.GITHUB_TOKEN }}
+      TERMINUS_ALLOW_UNSUPPORTED_NEWER_PHP: 1
+    steps:
+      - name: Check required configuration
+        run: |
+          missing=0
+          [ -n "${TERMINUS_SITE}" ] || { echo "::error::Repository variable PANTHEON_SITE is not set."; missing=1; }
+          [ -n "${{ secrets.TERMINUS_TOKEN }}" ] || { echo "::error::Secret TERMINUS_TOKEN is not set."; missing=1; }
+          [ -n "${{ secrets.PANTHEON_SSH_KEY }}" ] || { echo "::error::Secret PANTHEON_SSH_KEY is not set (terminus drush/rsync need SSH)."; missing=1; }
+          [ -n "${PROJECT_LEAD}" ] || echo "::warning::Repository variable PROJECT_LEAD is not set — the PR will not request a reviewer."
+          exit "${missing}"
+
+      - name: Checkout ${{ github.event.repository.default_branch }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          token: ${{ secrets.DRIFT_PR_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Skip if this project has no config sync directory or drift script
+        id: gate
+        run: |
+          if [ ! -d "${CONFIG_SYNC_DIR}" ]; then
+            echo "No ${CONFIG_SYNC_DIR}/ — not a Drupal config-managed project. Nothing to do."
+            echo "run=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [ ! -f .ci/scripts/config_split/prod-config-drift.sh ]; then
+            echo "::warning::.ci/scripts/config_split/prod-config-drift.sh not found — run composer update helloworlddevs/pantheon-ci-tools and commit the result."
+            echo "run=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "run=true" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Terminus
+        if: steps.gate.outputs.run == 'true'
+        uses: pantheon-systems/terminus-github-actions@v1
+        with:
+          terminus-version: '3.2.0'
+          pantheon-machine-token: ${{ secrets.TERMINUS_TOKEN }}
+
+      - name: Install SSH key for Pantheon
+        if: steps.gate.outputs.run == 'true'
+        env:
+          PANTHEON_SSH_KEY: ${{ secrets.PANTHEON_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${PANTHEON_SSH_KEY}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          # Pantheon app servers are ephemeral; host keys change. Trust *.drush.in.
+          cat >> ~/.ssh/config <<'CFG'
+          Host *.drush.in
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+            LogLevel ERROR
+          CFG
+          chmod 600 ~/.ssh/config
+
+      - name: Export live config and compare with the repo
+        if: steps.gate.outputs.run == 'true'
+        id: drift
+        run: bash .ci/scripts/config_split/prod-config-drift.sh
+
+      - name: Open or refresh the drift pull request
+        if: steps.gate.outputs.run == 'true' && steps.drift.outputs.drift == 'true'
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          DATE="$(date -u +%Y-%m-%d)"
+          git checkout -B "${DRIFT_BRANCH}"
+          git add -A -- "${CONFIG_SYNC_DIR}"
+          git commit -q -m "Sync prod config drift from ${TERMINUS_SITE}.live (${DATE})" \
+            -m "Automated by the Prod Config Drift workflow. ${{ steps.drift.outputs.updated }} updated, ${{ steps.drift.outputs.added }} added, ${{ steps.drift.outputs.removed }} removed."
+
+          EXISTING="$(gh pr list --head "${DRIFT_BRANCH}" --base "${DEFAULT_BRANCH}" --state open --json number --jq '.[0].number // empty')"
+
+          # Don't churn: if an open PR already carries exactly this tree, stop.
+          if [ -n "${EXISTING}" ] && git fetch -q origin "${DRIFT_BRANCH}" 2>/dev/null \
+             && [ "$(git rev-parse 'HEAD^{tree}')" = "$(git rev-parse 'FETCH_HEAD^{tree}')" ]; then
+            echo "Open PR #${EXISTING} already matches prod exactly — nothing to update."
+            exit 0
+          fi
+
+          git push -q --force origin "${DRIFT_BRANCH}"
+
+          gh label create config-drift --description "Automated prod→repo config sync" --color D93F0B 2>/dev/null || true
+
+          BODY="$(mktemp)"
+          {
+            if [ -n "${PROJECT_LEAD}" ]; then printf '@%s — prod config has drifted from `%s`; please review.\n\n' "${PROJECT_LEAD#@}" "${DEFAULT_BRANCH}"; fi
+            cat "${REPORT_FILE}"
+            printf '\n---\n_Opened by the [Prod Config Drift](%s/%s/actions/runs/%s) workflow. It re-runs nightly and refreshes this PR in place; it closes it automatically once `%s` matches prod._\n' \
+              "${GITHUB_SERVER_URL}" "${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}" "${DEFAULT_BRANCH}"
+          } > "${BODY}"
+          TITLE="Prod config drift: ${{ steps.drift.outputs.updated }} updated, ${{ steps.drift.outputs.added }} added, ${{ steps.drift.outputs.removed }} removed (${TERMINUS_SITE}.live, ${DATE})"
+
+          if [ -n "${EXISTING}" ]; then
+            gh pr edit "${EXISTING}" --title "${TITLE}" --body-file "${BODY}"
+            gh pr comment "${EXISTING}" --body "Refreshed from ${TERMINUS_SITE}.live on ${DATE}: ${{ steps.drift.outputs.updated }} updated, ${{ steps.drift.outputs.added }} added, ${{ steps.drift.outputs.removed }} removed."
+            echo "Updated PR #${EXISTING}"
+          else
+            ARGS=(--base "${DEFAULT_BRANCH}" --head "${DRIFT_BRANCH}" --title "${TITLE}" --body-file "${BODY}" --label config-drift)
+            URL="$(gh pr create "${ARGS[@]}")"
+            echo "Opened ${URL}"
+            if [ -n "${PROJECT_LEAD}" ]; then
+              LEAD="${PROJECT_LEAD#@}"
+              gh pr edit "${URL}" --add-reviewer "${LEAD}" || echo "::warning::Could not request review from '${LEAD}' (check vars.PROJECT_LEAD)."
+              gh pr edit "${URL}" --add-assignee "${LEAD}" || true
+            fi
+          fi
+
+      - name: Close a stale drift PR if prod and ${{ github.event.repository.default_branch }} now match
+        if: steps.gate.outputs.run == 'true' && steps.drift.outputs.drift == 'false'
+        run: |
+          EXISTING="$(gh pr list --head "${DRIFT_BRANCH}" --base "${DEFAULT_BRANCH}" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "${EXISTING}" ]; then
+            gh pr comment "${EXISTING}" --body "${TERMINUS_SITE}.live now matches \`${DEFAULT_BRANCH}\` — closing this automated PR."
+            gh pr close "${EXISTING}" --delete-branch
+            echo "Closed stale PR #${EXISTING}"
+          else
+            echo "No drift and no open drift PR. Nothing to do."
+          fi
+
+      - name: Upload report
+        if: always() && steps.gate.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-config-drift-report
+          path: /tmp/prod-config-drift.md
+          if-no-files-found: ignore
