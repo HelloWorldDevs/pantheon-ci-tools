@@ -2,10 +2,12 @@ version: 2.1
 
 # ── Dynamic configuration entrypoint ─────────────────────────────────────────
 # CircleCI runs THIS file first (setup: true). Its only job checks out the repo,
-# detects whether the project ships Behat tests, then "continues" into
-# continue_config.yml — passing behat_parallelism. This lets behat_test
-# provision 12 executors ONLY when there are tests to shard; a Behat-less
-# project gets parallelism 1, so it spins a single box that halts instead of 12.
+# detects whether the project ships Behat tests and which PHP minor the site
+# runs (pantheon.yml), then "continues" into continue_config.yml — passing
+# behat_parallelism and php_version. This lets behat_test provision 12
+# executors ONLY when there are tests to shard (a Behat-less project gets
+# parallelism 1, so it spins a single box that halts instead of 12), and lets
+# every executor image track the project's PHP version.
 #
 # The real pipeline (executors, jobs, workflows) lives in continue_config.yml.
 setup: true
@@ -44,7 +46,18 @@ jobs:
             echo "No tests/behat — behat_test will run on a single box."
             BEHAT_PARALLELISM=1
           fi
-          echo "{ \"behat_parallelism\": ${BEHAT_PARALLELISM} }" > /tmp/pipeline-parameters.json
+
+          # PHP minor for every executor in continue_config.yml (build image
+          # AND the Behat box) — read from pantheon.yml so CI runs the same PHP
+          # the site runs on Pantheon. Falls back to 8.2 if absent/unparseable.
+          PHP_VERSION="$(awk -F':[[:space:]]*' '/^php_version:/ {gsub(/["'"'"'[:space:]]/,"",$2); print $2; exit}' pantheon.yml 2>/dev/null || true)"
+          if ! printf '%s' "${PHP_VERSION}" | grep -qE '^[0-9]+\.[0-9]+$'; then
+            echo "No usable php_version in pantheon.yml (got '${PHP_VERSION:-}'); defaulting to 8.2."
+            PHP_VERSION="8.2"
+          fi
+          echo "PHP version for CI executors: ${PHP_VERSION}"
+
+          echo "{ \"behat_parallelism\": ${BEHAT_PARALLELISM}, \"php_version\": \"${PHP_VERSION}\" }" > /tmp/pipeline-parameters.json
           cat /tmp/pipeline-parameters.json
     - continuation/continue:
         configuration_path: .circleci/continue_config.yml
