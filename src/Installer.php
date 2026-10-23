@@ -152,6 +152,15 @@ class Installer
             $sourceBase . '/scripts/check-multidev-capacity.sh',
             $destBase . '/.ci/scripts/check-multidev-capacity.sh'
         );
+        // Builds the Slack failure message for the Behat and Playwright jobs
+        // from their JUnit output: failing test, failing step/assertion, deep
+        // links to the screenshot / HTML report and the job's Tests tab.
+        // Node script (node is on both test images); invoked via `node`, so no
+        // executable bit needed.
+        $this->copyFile(
+            $sourceBase . '/scripts/summarize-junit-failures.js',
+            $destBase . '/.ci/scripts/summarize-junit-failures.js'
+        );
         // Behat: the behat_setup/behat_test jobs in continue_config.yml self-skip
         // (circleci-agent step halt) unless the project ships a tests/behat
         // directory.

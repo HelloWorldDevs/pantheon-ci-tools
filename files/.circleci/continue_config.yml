@@ -519,6 +519,9 @@ jobs:
         default: "${MULTIDEV_SITE_URL}"
     environment:
       ARTIFACTS_FULL_DIR: /tmp/workspace/artifacts
+      # Lets the Slack failure summary deep-link to this job's Tests/Artifacts
+      # tabs (app.circleci.com URLs need the pipeline number).
+      CIRCLE_PIPELINE_NUMBER: << pipeline.number >>
     steps:
     # [persist][vars] Attach workspace to load saved environment variables and code
     - attach_workspace:
@@ -586,35 +589,27 @@ jobs:
     # too — no `when` needed (and `when` is redundant on these step types).
     - store_artifacts:
         path: /tmp/workspace/.ci/test/visual-regression/playwright-report
+        # Fixed destination so the Slack summary can link straight to
+        # playwright-report/index.html.
+        destination: playwright-report
 
     # [artifacts] Store JUnit test results
     - store_test_results:
         path: /tmp/workspace/.ci/test/visual-regression/test-results
 
-    # [notify] Build a Slack message naming the failed tests. Runs only on
-    # failure; reads the list run-playwright wrote from the JSON report and
-    # exports SLACK_FAILURE_TEXT (mrkdwn) for the slack/notify step below.
+    # [notify] Build the Slack failure message from the JUnit report: which
+    # tests failed, the assertion that broke, and deep links to the HTML diff
+    # report + this job's Tests tab. Exports SLACK_FAILURE_TEXT / SLACK_PRIMARY_*
+    # for slack/notify below. Falls back to a plain job link if JUnit is absent.
     - run:
         name: Summarize Playwright failures for Slack
         when: on_fail
         command: |
           cd /tmp/workspace/.ci/test/visual-regression || exit 0
-          F=test-results/slack-failures.txt
-          COUNT=0
-          LIST=""
-          if [ -s "$F" ]; then
-            COUNT=$(grep -c . "$F" 2>/dev/null || echo 0)
-            # Strip chars that would break the JSON string or re-trigger shell
-            # expansion when sourced from BASH_ENV (" \ $ `), bullet each line,
-            # then join with a LITERAL \n (Slack renders it as a newline).
-            LIST=$(sed -e 's/[\\"$`]//g' "$F" \
-                     | sed '/^[[:space:]]*$/d' \
-                     | sed 's/^/• /' \
-                     | awk 'NR==1{printf "%s",$0} NR>1{printf "\\n%s",$0}')
-          fi
-          [ -n "$LIST" ] || LIST="• (see the Playwright report in the Artifacts tab)"
-          TEXT="*Visual regression failed:* ${CIRCLE_PROJECT_REPONAME} (${CIRCLE_BRANCH})\\n\\n*${COUNT} test(s) failed:*\\n${LIST}\\n\\n<${CIRCLE_BUILD_URL}|Open the CircleCI job> — full diff report is under the *Artifacts* tab."
-          echo "export SLACK_FAILURE_TEXT=\"${TEXT}\"" >> "$BASH_ENV"
+          node /tmp/workspace/.ci/scripts/summarize-junit-failures.js \
+            --kind playwright \
+            --file test-results/junit.xml \
+            --report-artifact playwright-report/index.html
     # [notify] Notify Slack on failure with the named failures + report link.
     - slack/notify:
         event: fail
@@ -631,8 +626,8 @@ jobs:
                 "elements": [
                   {
                     "type": "button",
-                    "text": { "type": "plain_text", "text": "View job & diff report", "emoji": true },
-                    "url": "${CIRCLE_BUILD_URL}"
+                    "text": { "type": "plain_text", "text": "${SLACK_PRIMARY_LABEL}", "emoji": true },
+                    "url": "${SLACK_PRIMARY_URL}"
                   }
                 ]
               }
@@ -818,6 +813,11 @@ jobs:
     executor: behat
     resource_class: medium
     parallelism: << pipeline.parameters.behat_parallelism >>
+    environment:
+      # Lets the Slack failure summary deep-link to this job's Tests tab and to
+      # FailAid screenshots in Artifacts (app.circleci.com URLs need the
+      # pipeline number).
+      CIRCLE_PIPELINE_NUMBER: << pipeline.number >>
     steps:
     # [gate] FIRST: skip unless the project ships Behat tests. A cheap checkout
     # gives us tests/behat to test against, so a Behat-less project halts here
@@ -938,43 +938,21 @@ jobs:
         name: Enable Hubspot module
         when: always
         command: ./vendor/bin/drush pm-enable hubspot -y || echo "Hubspot not present"
-    # [notify] Build a Slack message naming the failed Behat scenarios. Runs
-    # only on failure; parses the JUnit XML the runner wrote and exports
-    # SLACK_FAILURE_TEXT (mrkdwn) for the slack/notify step below. Best-effort:
-    # the Behat runner/format is project-supplied, so it falls back to a link.
+    # [notify] Build the Slack failure message from the JUnit the sharded
+    # runner wrote (tests/behat/results/junit/test_run_*/default.xml): which
+    # scenarios failed, on which step and why, the page URL/status, a direct
+    # link to the FailAid screenshot artifact, plus this job's Tests tab. Also
+    # lists scenarios with undefined steps separately. Exports
+    # SLACK_FAILURE_TEXT / SLACK_PRIMARY_* for slack/notify below.
     - run:
         name: Summarize Behat failures for Slack
         when: on_fail
         command: |
-          RESULTS_DIR=./tests/behat/results
-          COUNT=0
-          LIST=""
-          if ls "${RESULTS_DIR}"/*.xml >/dev/null 2>&1; then
-            # Pull the name="..." of every <testcase> that contains a <failure>
-            # or <error>. Handles the common multi-line JUnit layout; self-closed
-            # (passing) testcases are ignored.
-            FAILED=$(awk '
-              /<testcase/ {
-                name=$0
-                sub(/.*name="/, "", name)
-                sub(/".*/, "", name)
-                cur=name
-                if ($0 ~ /\/>/) cur=""
-              }
-              /<(failure|error)/ { if (cur != "") { print cur; cur="" } }
-            ' "${RESULTS_DIR}"/*.xml 2>/dev/null | sort -u)
-            if [ -n "$FAILED" ]; then
-              COUNT=$(printf '%s\n' "$FAILED" | grep -c .)
-              LIST=$(printf '%s\n' "$FAILED" \
-                       | sed -e 's/[\\"$`]//g' \
-                       | sed '/^[[:space:]]*$/d' \
-                       | sed 's/^/• /' \
-                       | awk 'NR==1{printf "%s",$0} NR>1{printf "\\n%s",$0}')
-            fi
-          fi
-          [ -n "$LIST" ] || LIST="• (see the Behat results in the Artifacts tab)"
-          TEXT="*Behat tests failed:* ${CIRCLE_PROJECT_REPONAME} (${CIRCLE_BRANCH})\\n\\n*${COUNT} scenario(s) failed:*\\n${LIST}\\n\\n<${CIRCLE_BUILD_URL}|Open the CircleCI job> — results are under the *Artifacts* tab."
-          echo "export SLACK_FAILURE_TEXT=\"${TEXT}\"" >> "$BASH_ENV"
+          node ./.ci/scripts/summarize-junit-failures.js \
+            --kind behat \
+            --dir tests/behat/results/junit \
+            --local-root tests/behat/results \
+            --artifact-dest artifacts
     # [notify] Notify Slack on failure with the named scenarios + report link.
     - slack/notify:
         event: fail
@@ -991,8 +969,8 @@ jobs:
                 "elements": [
                   {
                     "type": "button",
-                    "text": { "type": "plain_text", "text": "View job & results", "emoji": true },
-                    "url": "${CIRCLE_BUILD_URL}"
+                    "text": { "type": "plain_text", "text": "${SLACK_PRIMARY_LABEL}", "emoji": true },
+                    "url": "${SLACK_PRIMARY_URL}"
                   }
                 ]
               }
