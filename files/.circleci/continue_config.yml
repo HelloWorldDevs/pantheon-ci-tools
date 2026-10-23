@@ -172,6 +172,12 @@ commands:
           # this step ends cleanly before the job does.
           env PHP_CLI_SERVER_WORKERS=8 php -S 0.0.0.0:80 .ht.router.php &
           SERVER_PID=$!
+          # PID file for stop_drupal_server. It must signal ONLY this process:
+          # CircleCI runs each step's script through a shell whose command
+          # line contains the script text, so `pkill -f '<pattern>'` also hits
+          # the step shells (this one and the stop step's own), and CircleCI
+          # then reports 'Received "terminated" signal' and cancels.
+          echo "${SERVER_PID}" > /tmp/drupal-web-server.pid
           trap 'echo "Stopping web server (pid ${SERVER_PID})..."; kill "${SERVER_PID}" 2>/dev/null || true; wait "${SERVER_PID}" 2>/dev/null || true; echo "Web server stopped."; exit 0' TERM INT
           wait "${SERVER_PID}" || true
           echo "Web server exited."
@@ -197,18 +203,33 @@ commands:
         name: Stop Drupal web server
         when: always
         command: |
-          # Signal the serve_drupal wrapper (it traps TERM and exits 0). Target
-          # the wrapper's php child; killing it also returns the wrapper's wait.
-          if pgrep -f 'php -S 0.0.0.0:80' >/dev/null 2>&1; then
-            pkill -TERM -f 'php -S 0.0.0.0:80' || true
-            for i in 1 2 3 4 5; do
-              pgrep -f 'php -S 0.0.0.0:80' >/dev/null 2>&1 || break
-              sleep 1
-            done
-            echo "Web server stopped."
-          else
-            echo "Web server was not running."
+          # Signal ONLY the php server process (by PID) and its worker children
+          # (by parent PID). Never pattern-match on command lines here: the
+          # step shells' own command lines contain this script's text, and
+          # TERMing a step shell makes CircleCI cancel the job.
+          PIDFILE=/tmp/drupal-web-server.pid
+          if [ ! -s "${PIDFILE}" ]; then
+            echo "No PID file at ${PIDFILE} — web server was not started by serve_drupal."
+            exit 0
           fi
+          PID="$(cat "${PIDFILE}")"
+          if ! kill -0 "${PID}" 2>/dev/null; then
+            echo "Web server (pid ${PID}) already exited."
+            exit 0
+          fi
+          echo "Stopping web server pid ${PID} and its workers..."
+          pkill -TERM -P "${PID}" 2>/dev/null || true
+          kill -TERM "${PID}" 2>/dev/null || true
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            kill -0 "${PID}" 2>/dev/null || break
+            sleep 1
+          done
+          if kill -0 "${PID}" 2>/dev/null; then
+            echo "Still alive after 10s; sending KILL."
+            pkill -KILL -P "${PID}" 2>/dev/null || true
+            kill -KILL "${PID}" 2>/dev/null || true
+          fi
+          echo "Web server stopped."
 
 defaults: &defaults
   executor: pantheon
