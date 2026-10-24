@@ -30,6 +30,16 @@
  *   --title <text>            Headline override.
  *   --max <n>                 Max failures to list (default 8).
  *   --out <path>              Where to append exports (default $BASH_ENV, else stdout).
+ *   --post                    Post the message to Slack directly (chat.postMessage)
+ *                             using $SLACK_ACCESS_TOKEN — the same bot token the
+ *                             CircleCI slack orb uses — when there is something to
+ *                             say: any failure OR any undefined/pending step. Lets
+ *                             the job run this with `when: always` as a digest
+ *                             without spamming on clean passes.
+ *   --always                  With --post: post even when everything passed.
+ *   --channel <id>            Slack channel for --post (default $SLACK_DEFAULT_CHANNEL).
+ *   --job-status pass|fail    Lets the digest title say "failed" when the job
+ *                             failed outside of a test (no JUnit failure).
  */
 'use strict';
 const fs = require('fs');
@@ -204,12 +214,28 @@ for (const c of all) {
 const count = failures.length;
 const undefCount = undefinedSteps.length;
 const shard = nodeTotal > 1 ? ` · shard ${parseInt(nodeIndex, 10) + 1}/${nodeTotal}` : '';
-const title = args.title || (KIND === 'behat' ? 'Behat tests failed' : 'Visual regression failed');
+const jobFailed = (args['job-status'] || '').toLowerCase() === 'fail';
+const suiteLabel = KIND === 'behat' ? 'Behat' : 'Visual regression';
+let state;            // failed | undefined-only | job-failed-no-junit | passed
+if (count > 0) state = 'failed';
+else if (undefCount > 0) state = 'undefined-only';
+else if (jobFailed || !args['job-status']) state = 'job-failed-no-junit';
+else state = 'passed';
+const icon = { failed: '🔴', 'undefined-only': '🟡', 'job-failed-no-junit': '🔴', passed: '🟢' }[state];
+const defaultTitle = {
+  failed: `${suiteLabel} tests failed`,
+  'undefined-only': `${suiteLabel} passed, but ${undefCount} scenario${undefCount === 1 ? ' has' : 's have'} undefined steps`,
+  'job-failed-no-junit': `${suiteLabel} job failed`,
+  passed: `${suiteLabel} passed`,
+}[state];
+const title = args.title || defaultTitle;
 const lines = [];
-lines.push(`*${esc(title)}:* ${esc(repo)} (${esc(env.CIRCLE_BRANCH || '')})${shard}`);
+lines.push(`${icon} *${esc(title)}:* ${esc(repo)} (${esc(env.CIRCLE_BRANCH || '')})${shard}`);
 lines.push('');
-if (count === 0 && undefCount === 0) {
+if (state === 'job-failed-no-junit') {
   lines.push('_The job failed but no failing test was recorded in JUnit — the failure is in a setup/teardown step, not a test. Open the job steps._');
+} else if (state === 'passed') {
+  lines.push('_All scenarios passed and every step is defined._');
 } else {
   if (count > 0) lines.push(`*${count} ${KIND === 'behat' ? 'scenario' : 'test'}${count === 1 ? '' : 's'} failed:*`);
   failures.slice(0, MAX).forEach(f => {
@@ -223,10 +249,13 @@ if (count === 0 && undefCount === 0) {
   });
   if (count > MAX) lines.push(`    _…and ${count - MAX} more — see the Tests tab._`);
   if (undefCount > 0) {
-    lines.push('');
-    lines.push(`*${undefCount} scenario${undefCount === 1 ? '' : 's'} with undefined/pending steps* (not counted as failures by the runner):`);
-    undefinedSteps.slice(0, 5).forEach(u => lines.push(`• ${esc(clip(u.name, 100))}${u.step ? ` — _${esc(clip(u.step, 100))}_` : ''}`));
-    if (undefCount > 5) lines.push(`    _…and ${undefCount - 5} more_`);
+    if (count > 0) lines.push('');
+    lines.push(`*${undefCount} scenario${undefCount === 1 ? '' : 's'} with undefined/pending steps* — these need step definitions (the runner does not count them as failures):`);
+    undefinedSteps.slice(0, MAX).forEach(u => {
+      lines.push(`• *${esc(clip(u.name, 100))}*${u.feature ? ` — _${esc(clip(u.feature, 60))}_` : ''}${u.where ? ` \`${esc(u.where)}\`` : ''}`);
+      if (u.step) lines.push(`    ? ${esc(clip(u.step, 160))}`);
+    });
+    if (undefCount > MAX) lines.push(`    _…and ${undefCount - MAX} more — see the Tests tab._`);
   }
 }
 lines.push('');
@@ -246,7 +275,9 @@ let primaryLabel = 'View failed tests';
 if (KIND === 'playwright' && args['report-artifact'] && artifactUrl(args['report-artifact'])) {
   primaryUrl = artifactUrl(args['report-artifact']); primaryLabel = 'Open diff report';
 }
-if (count === 0 && undefCount === 0 && jobBase) { primaryUrl = jobBase; primaryLabel = 'Open job'; }
+if (state === 'job-failed-no-junit' && jobBase) { primaryUrl = jobBase; primaryLabel = 'Open job'; }
+if (state === 'undefined-only') primaryLabel = 'View undefined steps';
+if (state === 'passed') primaryLabel = 'View tests';
 
 // ---------------------------------------------------------------------------
 // emit: JSON-string-escaped for the slack orb template; single-quoted for bash.
@@ -261,7 +292,39 @@ const exportsOut = [
   `export SLACK_PRIMARY_LABEL=${sq(primaryLabel)}`,
   '',
 ].join('\n');
+const shouldNotify = count > 0 || undefCount > 0 || state === 'job-failed-no-junit' || args.always === 'true';
 const out = args.out || env.BASH_ENV;
-if (out) fs.appendFileSync(out, exportsOut); else process.stdout.write(exportsOut);
-console.log(`Summarized ${count} failure(s), ${undefCount} undefined from ${files.length} JUnit file(s).`);
+const exportsAll = exportsOut + `export SLACK_SHOULD_NOTIFY=${sq(shouldNotify ? 'true' : 'false')}\n`;
+if (out) fs.appendFileSync(out, exportsAll); else process.stdout.write(exportsAll);
+console.log(`Summarized ${count} failure(s), ${undefCount} undefined from ${files.length} JUnit file(s); state=${state}; notify=${shouldNotify}.`);
 console.log(text);
+
+// ---------------------------------------------------------------------------
+// --post: send it ourselves via chat.postMessage. The slack orb can only fire
+// on pass/fail, not on "there is something worth saying", which is what a
+// digest needs. Same bot token (SLACK_ACCESS_TOKEN) and channel as the orb.
+// ---------------------------------------------------------------------------
+async function post() {
+  if (args.post !== 'true') return;
+  if (!shouldNotify) { console.log('Nothing to report — not posting to Slack.'); return; }
+  const token = env.SLACK_ACCESS_TOKEN;
+  const channel = args.channel || env.SLACK_DEFAULT_CHANNEL;
+  if (!token) { console.error('::warning:: SLACK_ACCESS_TOKEN not set — skipping Slack post.'); return; }
+  if (!channel) { console.error('::warning:: no --channel / SLACK_DEFAULT_CHANNEL — skipping Slack post.'); return; }
+  const blocks = [{ type: 'section', text: { type: 'mrkdwn', text } }];
+  if (primaryUrl) blocks.push({ type: 'actions', elements: [{ type: 'button', text: { type: 'plain_text', text: primaryLabel, emoji: true }, url: primaryUrl }] });
+  const payload = { channel, text: `${title}: ${repo} (${env.CIRCLE_BRANCH || ''})`, blocks, unfurl_links: false, unfurl_media: false };
+  const api = (env.SLACK_API_URL || 'https://slack.com/api').replace(/\/+$/, '');
+  const res = await fetch(`${api}/chat.postMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.ok === false) {
+    console.error(`::warning:: Slack post failed: HTTP ${res.status} ${data.error || ''}`);
+    return;  // never fail the job over a notification
+  }
+  console.log(`Posted to Slack channel ${channel} (ts ${data.ts || '?'}).`);
+}
+post().catch(e => console.error(`::warning:: Slack post error: ${e.message}`));

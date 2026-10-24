@@ -938,44 +938,32 @@ jobs:
         name: Enable Hubspot module
         when: always
         command: ./vendor/bin/drush pm-enable hubspot -y || echo "Hubspot not present"
-    # [notify] Build the Slack failure message from the JUnit the sharded
-    # runner wrote (tests/behat/results/junit/test_run_*/default.xml): which
-    # scenarios failed, on which step and why, the page URL/status, a direct
-    # link to the FailAid screenshot artifact, plus this job's Tests tab. Also
-    # lists scenarios with undefined steps separately. Exports
-    # SLACK_FAILURE_TEXT / SLACK_PRIMARY_* for slack/notify below.
+    # [notify] Record job status for the digest below. CircleCI doesn't expose
+    # pass/fail to steps, so an on_fail step drops a marker the always-step reads.
     - run:
-        name: Summarize Behat failures for Slack
+        name: Record Behat job failure
         when: on_fail
+        command: echo fail > /tmp/behat-job-status
+    # [notify] Slack DIGEST, not just a failure alert. Reads the JUnit the
+    # sharded runner wrote (tests/behat/results/junit/test_run_*/default.xml)
+    # and posts to Slack when there is anything worth saying: failing scenarios
+    # (step, why, page URL/status, FailAid screenshot link) AND scenarios with
+    # undefined/pending steps — those pass silently in Behat's non-strict mode
+    # but are test debt that needs fixing. Quiet on a clean pass. Posts via
+    # chat.postMessage itself (same SLACK_ACCESS_TOKEN/channel the slack orb
+    # uses) because the orb can only fire on pass/fail, not on "has content".
+    # Never fails the job over a notification problem.
+    - run:
+        name: Slack digest (failures + undefined steps)
+        when: always
         command: |
           node ./.ci/scripts/summarize-junit-failures.js \
             --kind behat \
             --dir tests/behat/results/junit \
             --local-root tests/behat/results \
-            --artifact-dest artifacts
-    # [notify] Notify Slack on failure with the named scenarios + report link.
-    - slack/notify:
-        event: fail
-        channel: C06G970M5PF
-        custom: |
-          {
-            "blocks": [
-              {
-                "type": "section",
-                "text": { "type": "mrkdwn", "text": "${SLACK_FAILURE_TEXT}" }
-              },
-              {
-                "type": "actions",
-                "elements": [
-                  {
-                    "type": "button",
-                    "text": { "type": "plain_text", "text": "${SLACK_PRIMARY_LABEL}", "emoji": true },
-                    "url": "${SLACK_PRIMARY_URL}"
-                  }
-                ]
-              }
-            ]
-          }
+            --artifact-dest artifacts \
+            --job-status "$(cat /tmp/behat-job-status 2>/dev/null || echo pass)" \
+            --post --channel "${SLACK_DEFAULT_CHANNEL:-C06G970M5PF}"
 
   # Compiles the theme for the Behat jobs WITHOUT depending on build_and_deploy.
   # Used by the master flow, where Behat runs BEFORE the deploy and so can't
