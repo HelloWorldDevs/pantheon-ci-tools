@@ -39,6 +39,18 @@ class InstallConfigSplit {
     'dev-config.sh'
   ];
 
+  /**
+   * Scripts installed into .ci/scripts/config_split/ for CI use. Always
+   * overwritten so updates ship cleanly (unlike the Lando copies, which a
+   * project may customise).
+   *
+   * @var string[]
+   */
+  private $ciScripts = [
+    'prod-config-drift.sh',
+    'config-safety-check.sh',
+  ];
+
   public function __construct(IOInterface $io, $projectRoot) {
     $this->io = $io;
     $this->projectRoot = $projectRoot;
@@ -59,6 +71,10 @@ class InstallConfigSplit {
     
     if (!$this->installLandoScripts()) {
       $this->io->writeError('  - Error: could not install Lando scripts; aborting config split installation.');
+      return;
+    }
+    if (!$this->installCiScripts()) {
+      $this->io->writeError('  - Error: could not install CI config scripts; aborting config split installation.');
       return;
     }
     if (!$this->modifyLandoFile()) {
@@ -228,6 +244,40 @@ class InstallConfigSplit {
     }
 
     $this->io->write('  - All Lando scripts have been copied successfully!');
+
+    return true;
+  }
+
+  /**
+   * Copies CI-side config scripts into .ci/scripts/config_split/, overwriting.
+   *
+   * @return bool True if successful, false if not.
+   */
+  protected function installCiScripts(): bool {
+    $ciScriptsDir = rtrim($this->projectRoot, '/') . '/.ci/scripts/config_split';
+
+    if (!\is_dir($ciScriptsDir) && !\mkdir($ciScriptsDir, 0755, true) && !\is_dir($ciScriptsDir)) {
+      $this->io->writeError(sprintf('  - Error: failed to create CI scripts directory %s', $ciScriptsDir));
+      return false;
+    }
+
+    foreach ($this->ciScripts as $script) {
+      $src = $this->scriptDir . '/' . $script;
+      $dst = $ciScriptsDir . '/' . $script;
+      if (!file_exists($src)) {
+        $this->io->writeError(sprintf('  - Error: source CI script not found: %s', $src));
+        return false;
+      }
+      if (!copy($src, $dst)) {
+        $this->io->writeError(sprintf('  - Error: failed to copy %s to %s', $script, $dst));
+        return false;
+      }
+      if (!chmod($dst, 0755)) {
+        $this->io->writeError(sprintf('  - Error: failed to make executable: %s', $script));
+        return false;
+      }
+      $this->io->write(sprintf('  - Installed CI script: %s', str_replace(getcwd() . '/', '', $dst)));
+    }
 
     return true;
   }

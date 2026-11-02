@@ -74,6 +74,35 @@ TERMINUS_TOKEN=your-terminus-token
 GITHUB_TOKEN=your-github-token
 ```
 
+## Nightly Prod Config Drift PR
+
+Installed as `.github/workflows/prod-config-drift.yml`. Every night at midnight
+Pacific (08:00 UTC) it exports the **live** environment's active Drupal
+configuration, compares it with the default branch's `config/sync/`, and if
+they differ it opens a pull request (branch `prod-config-drift`) that replaces
+`config/sync/` with prod's export — including deletions — and requests review
+from the project lead. It refreshes the same PR in place on later nights and
+closes it automatically once the default branch matches prod again.
+
+Set these on the GitHub repository:
+
+| Kind | Name | Purpose |
+|---|---|---|
+| Variable | `PANTHEON_SITE` | Pantheon site machine name (already used by the multidev cleanup workflow). |
+| Variable | `PROJECT_LEAD` | GitHub username or `org/team` to request review from and @mention. |
+| Secret | `TERMINUS_TOKEN` | Pantheon machine token (already used by the multidev cleanup workflow). |
+| Secret | `PANTHEON_SSH_KEY` | Private SSH key whose public key is on a Pantheon user with site access. `terminus drush` and `terminus rsync` run over SSH. |
+| Variable | `CONFIG_SYNC_DIR` | Optional. Defaults to `config/sync`. |
+| Secret | `DRIFT_PR_TOKEN` | Optional PAT. Use if the org setting *Allow GitHub Actions to create and approve pull requests* is off, or if the PR must trigger other GitHub Actions workflows. |
+
+Run it on demand from the Actions tab (`workflow_dispatch`). The comparison
+logic lives in `.ci/scripts/config_split/prod-config-drift.sh` and can be run
+locally from the project root with Terminus authenticated:
+
+```bash
+TERMINUS_SITE=your-site APPLY=false .ci/scripts/config_split/prod-config-drift.sh
+```
+
 ## Troubleshooting
 
 ### Visual Tests Failing
