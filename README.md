@@ -63,6 +63,16 @@ The plugin sets up a CircleCI pipeline that:
 3. Runs visual regression tests
 4. Reports results back to GitHub
 
+### Slack digest for Behat
+
+After every Behat run the job posts a Slack digest when there is anything to
+say: failing scenarios (step, reason, page URL/status, FailAid screenshot link)
+**and** scenarios with undefined or pending steps, which Behat passes silently
+but which are test debt. A clean run posts nothing. The post uses the same
+`SLACK_ACCESS_TOKEN` context as the Slack orb and defaults to the shared
+channel; override per project with `SLACK_DEFAULT_CHANNEL`. The Playwright
+job still notifies on failure only.
+
 ### Required Environment Variables
 
 Set these in your CI environment:
