@@ -112,6 +112,14 @@ class Installer
             $sourceBase . '/github/pr-comments-to-jira.yml',
             $destBase . '/.github/workflows/pr-comments-to-jira.yml'
         );
+        // Nightly prod→repo config drift check. Exports live config, diffs it
+        // against the default branch's config sync dir and opens/refreshes a
+        // PR tagging vars.PROJECT_LEAD. Self-skips on non-Drupal projects.
+        // Needs secrets.PANTHEON_SSH_KEY in addition to TERMINUS_TOKEN.
+        $this->copyFile(
+            $sourceBase . '/github/prod-config-drift.yml',
+            $destBase . '/.github/workflows/prod-config-drift.yml'
+        );
         $this->copyFile(
             $sourceBase . '/scripts/dev-multidev.sh',
             $destBase . '/.ci/scripts/dev-multidev.sh'
@@ -151,6 +159,15 @@ class Installer
         $this->copyFile(
             $sourceBase . '/scripts/check-multidev-capacity.sh',
             $destBase . '/.ci/scripts/check-multidev-capacity.sh'
+        );
+        // Builds the Slack failure message for the Behat and Playwright jobs
+        // from their JUnit output: failing test, failing step/assertion, deep
+        // links to the screenshot / HTML report and the job's Tests tab.
+        // Node script (node is on both test images); invoked via `node`, so no
+        // executable bit needed.
+        $this->copyFile(
+            $sourceBase . '/scripts/summarize-junit-failures.js',
+            $destBase . '/.ci/scripts/summarize-junit-failures.js'
         );
         // Behat: the behat_setup/behat_test jobs in continue_config.yml self-skip
         // (circleci-agent step halt) unless the project ships a tests/behat
