@@ -8,11 +8,12 @@ name: Prod Config Drift
 # Required repo configuration:
 #   secrets.TERMINUS_TOKEN     Pantheon machine token (same one the multidev
 #                              cleanup workflow uses).
-#   secrets.PANTHEON_SSH_KEY   Private SSH key whose public half is added to a
+#   secrets.SSH_PRIVATE_KEY    Private SSH key whose public half is added to a
 #                              Pantheon user with access to the site. Needed
 #                              because `terminus drush` / `terminus rsync` go
 #                              over SSH, not the API.
-#   vars.PANTHEON_SITE         Pantheon site machine name.
+#   TERMINUS_SITE              Pantheon site machine name (repo variable or
+#                              secret — the same name the CircleCI jobs use).
 #   vars.PROJECT_LEAD          GitHub username (or org/team slug) to request
 #                              review from and @mention. Optional but intended.
 # Optional:
@@ -43,7 +44,7 @@ jobs:
     name: Compare live config with ${{ github.event.repository.default_branch }}
     runs-on: ubuntu-latest
     env:
-      TERMINUS_SITE: ${{ vars.PANTHEON_SITE }}
+      TERMINUS_SITE: ${{ vars.TERMINUS_SITE || secrets.TERMINUS_SITE }}
       CONFIG_SYNC_DIR: ${{ vars.CONFIG_SYNC_DIR || 'config/sync' }}
       PROJECT_LEAD: ${{ vars.PROJECT_LEAD }}
       DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
@@ -55,9 +56,9 @@ jobs:
       - name: Check required configuration
         run: |
           missing=0
-          [ -n "${TERMINUS_SITE}" ] || { echo "::error::Repository variable PANTHEON_SITE is not set."; missing=1; }
+          [ -n "${TERMINUS_SITE}" ] || { echo "::error::TERMINUS_SITE is not set (add it as a repository variable or secret)."; missing=1; }
           [ -n "${{ secrets.TERMINUS_TOKEN }}" ] || { echo "::error::Secret TERMINUS_TOKEN is not set."; missing=1; }
-          [ -n "${{ secrets.PANTHEON_SSH_KEY }}" ] || { echo "::error::Secret PANTHEON_SSH_KEY is not set (terminus drush/rsync need SSH)."; missing=1; }
+          [ -n "${{ secrets.SSH_PRIVATE_KEY }}" ] || { echo "::error::Secret SSH_PRIVATE_KEY is not set (terminus drush/rsync need SSH)."; missing=1; }
           [ -n "${PROJECT_LEAD}" ] || echo "::warning::Repository variable PROJECT_LEAD is not set — the PR will not request a reviewer."
           exit "${missing}"
 
@@ -91,10 +92,10 @@ jobs:
       - name: Install SSH key for Pantheon
         if: steps.gate.outputs.run == 'true'
         env:
-          PANTHEON_SSH_KEY: ${{ secrets.PANTHEON_SSH_KEY }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "${PANTHEON_SSH_KEY}" > ~/.ssh/id_rsa
+          printf '%s\n' "${SSH_PRIVATE_KEY}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           # Pantheon app servers are ephemeral; host keys change. Trust *.drush.in.
           cat >> ~/.ssh/config <<'CFG'

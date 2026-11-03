@@ -98,10 +98,10 @@ Set these on the GitHub repository:
 
 | Kind | Name | Purpose |
 |---|---|---|
-| Variable | `PANTHEON_SITE` | Pantheon site machine name (already used by the multidev cleanup workflow). |
+| Variable or Secret | `TERMINUS_SITE` | Pantheon site machine name (same name the CircleCI jobs use; either kind works). |
 | Variable | `PROJECT_LEAD` | GitHub username or `org/team` to request review from and @mention. |
 | Secret | `TERMINUS_TOKEN` | Pantheon machine token (already used by the multidev cleanup workflow). |
-| Secret | `PANTHEON_SSH_KEY` | Private SSH key whose public key is on a Pantheon user with site access. `terminus drush` and `terminus rsync` run over SSH. |
+| Secret | `SSH_PRIVATE_KEY` | Private SSH key whose public key is on a Pantheon user with site access. `terminus drush` and `terminus rsync` run over SSH. |
 | Variable | `CONFIG_SYNC_DIR` | Optional. Defaults to `config/sync`. |
 | Secret | `DRIFT_PR_TOKEN` | Optional PAT. Use if the org setting *Allow GitHub Actions to create and approve pull requests* is off, or if the PR must trigger other GitHub Actions workflows. |
 
