@@ -19,15 +19,17 @@ jobs:
         env:
           TERMINUS_ALLOW_UNSUPPORTED_NEWER_PHP: 1
         with:
-          terminus-version: '3.2.0'
+          terminus-version: '4.3.4'
           pantheon-machine-token: ${{ secrets.TERMINUS_TOKEN }}
 
       - name: Delete Multidev Environment
         env:
           TERMINUS_ALLOW_UNSUPPORTED_NEWER_PHP: 1
           # TERMINUS_TOKEN is used in the auth step above
-          # IMPORTANT: Ensure PANTHEON_SITE is set in GitHub repo variables
-          PANTHEON_SITE: "${{ vars.PANTHEON_SITE || 'your-site-name' }}"
+          # Pantheon site machine name. TERMINUS_SITE (repo variable or
+          # secret, same name the CircleCI jobs use) wins; PANTHEON_SITE is
+          # still read for projects that set it up the old way.
+          PANTHEON_SITE: "${{ vars.TERMINUS_SITE || secrets.TERMINUS_SITE || vars.PANTHEON_SITE }}"
           # Get branch name from PR event
           BRANCH: "${{ github.event.pull_request.head.ref || github.head_ref || github.ref_name }}"
         run: |
@@ -35,6 +37,10 @@ jobs:
           # Clean up branch name to be a valid multidev name (lowercase, alphanumeric, hyphens, max 11 chars, no leading/trailing hyphens)
           CLEAN_BRANCH=$(echo "$BRANCH" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/^-*//;s/-*$//' | cut -c 1-11)
           echo "Cleaned branch name for multidev: ${CLEAN_BRANCH}"
+          if [ -z "${PANTHEON_SITE}" ]; then
+            echo "::error::Set TERMINUS_SITE as a repository variable or secret (the Pantheon site machine name)."
+            exit 1
+          fi
           echo "Target Pantheon site: ${PANTHEON_SITE}"
 
           # Check if the multidev environment exists
