@@ -86,8 +86,22 @@ jobs:
         if: steps.gate.outputs.run == 'true'
         uses: pantheon-systems/terminus-github-actions@v1
         with:
-          terminus-version: '3.2.0'
+          terminus-version: '4.3.4'
           pantheon-machine-token: ${{ secrets.TERMINUS_TOKEN }}
+
+      # Fail fast with a readable reason when the token's user can't see the
+      # site. Otherwise the first real command (terminus drush) fails deep in
+      # its output with "Could not locate a site your user may access".
+      - name: Verify Terminus can access the site
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          WHO="$(terminus auth:whoami 2>/dev/null || true)"
+          if ! OUT="$(terminus site:info "${TERMINUS_SITE}" --field=name 2>&1)"; then
+            printf '%s\n' "${OUT}" | grep -E '\[error\]' || printf '%s\n' "${OUT}" | tail -5
+            echo "::error title=Pantheon access::TERMINUS_TOKEN belongs to ${WHO:-an unknown user}, who cannot access the site in TERMINUS_SITE. Add that user to the site's team on Pantheon, or use a machine token from a user who is on it. Also confirm TERMINUS_SITE is the site's machine name."
+            exit 1
+          fi
+          echo "Terminus user ${WHO} can access ${OUT}."
 
       - name: Install SSH key for Pantheon
         if: steps.gate.outputs.run == 'true'
