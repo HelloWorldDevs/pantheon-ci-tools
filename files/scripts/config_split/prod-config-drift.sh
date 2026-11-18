@@ -60,11 +60,21 @@ else
   : "${TERMINUS_SITE:?TERMINUS_SITE is required (or set PROD_CONFIG_DIR)}"
   command -v terminus >/dev/null || { echo "ERROR: terminus not on PATH" >&2; exit 2; }
   PROD="$(mktemp -d)"; CLEANUP="${PROD}"
+  # `terminus rsync site.env:files/...` is relative to the app server's $HOME
+  # (/srv/bindings/<id>), so export there. `/files/...` is the SFTP view, not a
+  # real path on the app server, and drush fails on it as "not writable".
+  REMOTE_REL="files/private/config-export"
+  REMOTE_HOME="$(terminus drush "${TERMINUS_SITE}.${SRC_ENV}" -- \
+    php:eval 'echo getenv("HOME");' | tr -d '\r' | tail -n 1)"
+  case "${REMOTE_HOME}" in
+    /*) ;;
+    *) echo "ERROR: could not read \$HOME on ${TERMINUS_SITE}.${SRC_ENV} (got '${REMOTE_HOME}')" >&2; exit 2 ;;
+  esac
   echo "==> Exporting active config from ${TERMINUS_SITE}.${SRC_ENV}"
   terminus drush "${TERMINUS_SITE}.${SRC_ENV}" -- \
-    config:export --destination=/files/private/config-export -y
+    config:export --destination="${REMOTE_HOME%/}/${REMOTE_REL}" -y
   echo "==> Downloading it to ${PROD}"
-  terminus rsync "${TERMINUS_SITE}.${SRC_ENV}":files/private/config-export/ "${PROD}/"
+  terminus rsync "${TERMINUS_SITE}.${SRC_ENV}:${REMOTE_REL}/" "${PROD}/"
 fi
 trap '[ -n "${CLEANUP}" ] && rm -rf "${CLEANUP}"' EXIT
 
