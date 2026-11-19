@@ -104,6 +104,11 @@ jobs:
           terminus-version: '4.3.4'
           pantheon-machine-token: ${{ secrets.TERMINUS_TOKEN }}
 
+      # `terminus rsync` (used by the drift script) ships as a plugin, not core.
+      - name: Install Terminus rsync plugin
+        if: steps.gate.outputs.run == 'true'
+        run: terminus self:plugin:install pantheon-systems/terminus-rsync-plugin
+
       # Fail fast with a readable reason when the token's user can't see the
       # site. Otherwise the first real command (terminus drush) fails deep in
       # its output with "Could not locate a site your user may access".

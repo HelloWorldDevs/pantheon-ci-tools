@@ -53,6 +53,21 @@ foreach ($steps as $s) {
 $check($gate && strpos($runOf($gate), '${DRIFT_SCRIPT}') !== false, 'gate looks for ${DRIFT_SCRIPT}');
 $check($drift && trim($runOf($drift)) === 'bash "${DRIFT_SCRIPT}"', 'drift step runs ${DRIFT_SCRIPT}');
 
+// `terminus rsync` (used by the drift script) is a plugin, not part of
+// Terminus core, so it must be installed after Terminus is set up and before
+// the drift script runs.
+$terminusIdx = $pluginIdx = $driftIdx = null;
+foreach ($steps as $i => $s) {
+  if (strpos($s['uses'] ?? '', 'pantheon-systems/terminus-github-actions@') === 0) { $terminusIdx = $i; }
+  if (trim($runOf($s)) === 'terminus self:plugin:install pantheon-systems/terminus-rsync-plugin') { $pluginIdx = $i; }
+  if (($s['id'] ?? '') === 'drift') { $driftIdx = $i; }
+}
+$check($pluginIdx !== null, 'installs the Terminus rsync plugin');
+$check($pluginIdx !== null && $terminusIdx !== null && $pluginIdx > $terminusIdx,
+  'rsync plugin is installed after Terminus is set up');
+$check($pluginIdx !== null && $driftIdx !== null && $pluginIdx < $driftIdx,
+  'rsync plugin is installed before the drift script runs');
+
 echo "\n" . ($fails ? "{$fails} test(s) failed.\n" : "All tests passed.\n");
 exit($fails ? 1 : 0);
 PHP
