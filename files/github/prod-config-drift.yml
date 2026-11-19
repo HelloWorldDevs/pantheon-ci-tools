@@ -52,6 +52,10 @@ jobs:
       REPORT_FILE: /tmp/prod-config-drift.md
       GH_TOKEN: ${{ secrets.DRIFT_PR_TOKEN || secrets.GITHUB_TOKEN }}
       TERMINUS_ALLOW_UNSUPPORTED_NEWER_PHP: 1
+      DRIFT_SCRIPT: .ci/scripts/config_split/prod-config-drift.sh
+      # Commit the run started on: the default branch for scheduled runs, the
+      # chosen branch for `workflow_dispatch --ref <branch>`.
+      SCRIPT_REF: ${{ github.sha }}
     steps:
       - name: Check required configuration
         run: |
@@ -76,8 +80,8 @@ jobs:
             echo "No ${CONFIG_SYNC_DIR}/ — not a Drupal config-managed project. Nothing to do."
             echo "run=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
-          if [ ! -f .ci/scripts/config_split/prod-config-drift.sh ]; then
-            echo "::warning::.ci/scripts/config_split/prod-config-drift.sh not found — run composer update helloworlddevs/pantheon-ci-tools and commit the result."
+          if [ ! -f "${DRIFT_SCRIPT}" ] && ! git cat-file -e "${SCRIPT_REF}:${DRIFT_SCRIPT}" 2>/dev/null; then
+            echo "::warning::${DRIFT_SCRIPT} not found — run composer update helloworlddevs/pantheon-ci-tools and commit the result."
             echo "run=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
           echo "run=true" >> "$GITHUB_OUTPUT"
@@ -123,7 +127,22 @@ jobs:
       - name: Export live config and compare with the repo
         if: steps.gate.outputs.run == 'true'
         id: drift
-        run: bash .ci/scripts/config_split/prod-config-drift.sh
+        run: |
+          set -euo pipefail
+          # Run the scripts from the commit this run started on, so
+          # `gh workflow run prod-config-drift.yml --ref <branch>` tests that
+          # branch's script. The comparison and the PR still use the default
+          # branch checked out above. Scheduled runs: SCRIPT_REF is the default
+          # branch, so nothing changes.
+          SCRIPTS="$(mktemp -d)"
+          SCRIPT_DIR="$(dirname "${DRIFT_SCRIPT}")"
+          if git cat-file -e "${SCRIPT_REF}:${DRIFT_SCRIPT}" 2>/dev/null; then
+            git archive "${SCRIPT_REF}" "${SCRIPT_DIR}" | tar -x -C "${SCRIPTS}"
+            echo "Using ${DRIFT_SCRIPT} from ${SCRIPT_REF}"
+          else
+            mkdir -p "${SCRIPTS}/${SCRIPT_DIR}" && cp -R "${SCRIPT_DIR}/." "${SCRIPTS}/${SCRIPT_DIR}/"
+          fi
+          bash "${SCRIPTS}/${DRIFT_SCRIPT}"
 
       - name: Open or refresh the drift pull request
         if: steps.gate.outputs.run == 'true' && steps.drift.outputs.drift == 'true'

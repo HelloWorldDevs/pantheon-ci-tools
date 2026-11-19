@@ -105,7 +105,11 @@ Set these on the GitHub repository:
 | Variable | `CONFIG_SYNC_DIR` | Optional. Defaults to `config/sync`. |
 | Secret | `DRIFT_PR_TOKEN` | Optional PAT. Use if the org setting *Allow GitHub Actions to create and approve pull requests* is off, or if the PR must trigger other GitHub Actions workflows. |
 
-Run it on demand from the Actions tab (`workflow_dispatch`). The comparison
+Run it on demand from the Actions tab (`workflow_dispatch`). To test a branch
+that updates pantheon-ci-tools before merging it, run
+`gh workflow run prod-config-drift.yml --ref <branch>`: the drift script comes
+from that branch, while the comparison and the PR still use the default branch.
+The comparison
 logic lives in `.ci/scripts/config_split/prod-config-drift.sh` and can be run
 locally from the project root with Terminus authenticated:
 
