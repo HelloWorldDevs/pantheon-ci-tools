@@ -65,7 +65,7 @@ jobs:
           # Check if the multidev environment exists (exact match)
           if terminus env:list "${PANTHEON_SITE}" --field=id | grep -qxF "${CLEAN_BRANCH}"; then
             echo "Multidev environment '${CLEAN_BRANCH}' found for site '${PANTHEON_SITE}'. Deleting..."
-            terminus env:delete "${PANTHEON_SITE}.${CLEAN_BRANCH}" --delete-branch --yes --force
+            terminus env:delete "${PANTHEON_SITE}.${CLEAN_BRANCH}" --delete-branch --yes
             echo "Deletion command executed for multidev '${CLEAN_BRANCH}'."
           else
             echo "No multidev environment named '${CLEAN_BRANCH}' found for site '${PANTHEON_SITE}'. Nothing to delete."
