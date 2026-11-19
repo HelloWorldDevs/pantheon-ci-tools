@@ -10,7 +10,7 @@ name: Prod Config Drift
 #                              cleanup workflow uses).
 #   secrets.SSH_PRIVATE_KEY    Private SSH key whose public half is added to a
 #                              Pantheon user with access to the site. Needed
-#                              because `terminus drush` / `terminus rsync` go
+#                              because `terminus drush` and the rsync download go
 #                              over SSH, not the API.
 #   TERMINUS_SITE              Pantheon site machine name (repo variable or
 #                              secret — the same name the CircleCI jobs use).
@@ -49,6 +49,8 @@ jobs:
       PROJECT_LEAD: ${{ vars.PROJECT_LEAD }}
       DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       DRIFT_BRANCH: prod-config-drift
+      # From the "Checkout drift tooling" step, i.e. the ref this run started on.
+      DRIFT_SCRIPT: .drift-tools/.ci/scripts/config_split/prod-config-drift.sh
       REPORT_FILE: /tmp/prod-config-drift.md
       GH_TOKEN: ${{ secrets.DRIFT_PR_TOKEN || secrets.GITHUB_TOKEN }}
       TERMINUS_ALLOW_UNSUPPORTED_NEWER_PHP: 1
@@ -69,6 +71,19 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.DRIFT_PR_TOKEN || secrets.GITHUB_TOKEN }}
 
+      # The config to compare is the default branch's, but the drift scripts
+      # come from the ref this run started on. On the nightly schedule that is
+      # the default branch anyway; on `gh workflow run --ref <branch>` it means
+      # the branch's scripts are the ones tested. Must run after the checkout
+      # above, which cleans the workspace.
+      - name: Checkout drift tooling from ${{ github.ref_name }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: .drift-tools
+          sparse-checkout: .ci/scripts/config_split
+          persist-credentials: false
+
       - name: Skip if this project has no config sync directory or drift script
         id: gate
         run: |
@@ -76,8 +91,8 @@ jobs:
             echo "No ${CONFIG_SYNC_DIR}/ — not a Drupal config-managed project. Nothing to do."
             echo "run=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
-          if [ ! -f .ci/scripts/config_split/prod-config-drift.sh ]; then
-            echo "::warning::.ci/scripts/config_split/prod-config-drift.sh not found — run composer update helloworlddevs/pantheon-ci-tools and commit the result."
+          if [ ! -f "${DRIFT_SCRIPT}" ]; then
+            echo "::warning::.ci/scripts/config_split/prod-config-drift.sh not found on ${GITHUB_REF_NAME} — run composer update helloworlddevs/pantheon-ci-tools and commit the result."
             echo "run=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
           echo "run=true" >> "$GITHUB_OUTPUT"
@@ -123,7 +138,7 @@ jobs:
       - name: Export live config and compare with the repo
         if: steps.gate.outputs.run == 'true'
         id: drift
-        run: bash .ci/scripts/config_split/prod-config-drift.sh
+        run: bash "${DRIFT_SCRIPT}"
 
       - name: Open or refresh the drift pull request
         if: steps.gate.outputs.run == 'true' && steps.drift.outputs.drift == 'true'

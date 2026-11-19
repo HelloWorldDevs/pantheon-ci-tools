@@ -101,11 +101,14 @@ Set these on the GitHub repository:
 | Variable or Secret | `TERMINUS_SITE` | Pantheon site machine name (same name the CircleCI jobs use; either kind works). |
 | Variable | `PROJECT_LEAD` | GitHub username or `org/team` to request review from and @mention. |
 | Secret | `TERMINUS_TOKEN` | Pantheon machine token (already used by the multidev cleanup workflow). |
-| Secret | `SSH_PRIVATE_KEY` | Private SSH key whose public key is on a Pantheon user with site access. `terminus drush` and `terminus rsync` run over SSH. |
+| Secret | `SSH_PRIVATE_KEY` | Private SSH key whose public key is on a Pantheon user with site access. `terminus drush` and the rsync download of the exported config run over SSH. |
 | Variable | `CONFIG_SYNC_DIR` | Optional. Defaults to `config/sync`. |
 | Secret | `DRIFT_PR_TOKEN` | Optional PAT. Use if the org setting *Allow GitHub Actions to create and approve pull requests* is off, or if the PR must trigger other GitHub Actions workflows. |
 
-Run it on demand from the Actions tab (`workflow_dispatch`). The comparison
+Run it on demand from the Actions tab (`workflow_dispatch`). A run started on
+another branch (`gh workflow run prod-config-drift.yml --ref <branch>`) still
+compares prod with the default branch's config, but uses that branch's copy of
+the drift scripts, so you can test script changes before merging. The comparison
 logic lives in `.ci/scripts/config_split/prod-config-drift.sh` and can be run
 locally from the project root with Terminus authenticated:
 
