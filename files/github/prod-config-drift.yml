@@ -10,7 +10,7 @@ name: Prod Config Drift
 #                              cleanup workflow uses).
 #   secrets.SSH_PRIVATE_KEY    Private SSH key whose public half is added to a
 #                              Pantheon user with access to the site. Needed
-#                              because `terminus drush` / `terminus rsync` go
+#                              because `terminus drush` and the rsync download go
 #                              over SSH, not the API.
 #   TERMINUS_SITE              Pantheon site machine name (repo variable or
 #                              secret — the same name the CircleCI jobs use).

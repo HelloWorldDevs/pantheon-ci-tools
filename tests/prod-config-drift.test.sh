@@ -2,7 +2,7 @@
 #
 # Tests for files/scripts/config_split/prod-config-drift.sh, using a fake
 # `terminus` that behaves like a Pantheon app server: the site's files live in
-# $HOME/files (where `terminus rsync site.env:files/...` reads from) and the
+# $HOME/files (where rsync over SSH to `user@host:files/...` reads from) and the
 # filesystem root is not writable, so `drush config:export` fails for any
 # destination outside $HOME/files.
 #
@@ -56,17 +56,43 @@ case "${cmd}" in
       *) echo "unexpected drush command ${sub}" >&2; exit 1 ;;
     esac
     ;;
-  rsync)
-    src="$1"; dst="$2"
-    path="${src#*:}"
-    case "${path}" in /*) echo "rsync: absolute remote path ${path}" >&2; exit 1 ;; esac
-    [ -d "${FAKE_REMOTE_HOME}/${path}" ] || { echo "rsync: ${path}: No such file or directory" >&2; exit 23; }
-    cp -R "${FAKE_REMOTE_HOME}/${path%/}/." "${dst%/}/"
+  connection:info)
+    shift            # site.env
+    case "$1" in
+      --field=sftp_username) echo "live.abc123" ;;
+      --field=sftp_host)     echo "appserver.live.abc123.drush.in" ;;
+      --field=sftp_port)     echo "2222" ;;
+      *) echo "unexpected connection:info $*" >&2; exit 1 ;;
+    esac
     ;;
+  rsync) echo "Command \"rsync\" is not defined." >&2; exit 1 ;;
   *) echo "unexpected terminus command ${cmd}" >&2; exit 1 ;;
 esac
 FAKE
 chmod +x "${WORK}/bin/terminus"
+
+# Fake rsync: remote sources (user@host:path) are served from the fake app
+# server's $HOME; local-to-local syncs go to the real rsync.
+REAL_RSYNC="$(command -v rsync)"
+cat > "${WORK}/bin/rsync" <<FAKE
+#!/usr/bin/env bash
+set -euo pipefail
+remote=""; dst=""
+for a in "\$@"; do
+  case "\${a}" in
+    *@*:*) remote="\${a}" ;;
+    -*) ;;
+    *) dst="\${a}" ;;
+  esac
+done
+[ -n "\${remote}" ] || exec "${REAL_RSYNC}" "\$@"
+echo "rsync \$*" >> "\${FAKE_LOG}"
+path="\${remote#*:}"
+case "\${path}" in /*) echo "rsync: absolute remote path \${path}" >&2; exit 1 ;; esac
+[ -d "\${FAKE_REMOTE_HOME}/\${path}" ] || { echo "rsync: \${path}: No such file or directory" >&2; exit 23; }
+cp -R "\${FAKE_REMOTE_HOME}/\${path%/}/." "\${dst%/}/"
+FAKE
+chmod +x "${WORK}/bin/rsync"
 
 # --- fake project ---------------------------------------------------------
 PROJECT="${WORK}/project"
@@ -105,6 +131,12 @@ if grep -q -- "--destination=${REMOTE_HOME}/files/" "${WORK}/terminus.log"; then
   pass "config:export writes under the remote \$HOME/files"
 else
   fail "config:export writes under the remote \$HOME/files"; sed 's/^/     /' "${WORK}/terminus.log"
+fi
+
+if grep -q -- "rsync .*-e ssh -p 2222.* live.abc123@appserver.live.abc123.drush.in:files/private/config-export/" "${WORK}/terminus.log"; then
+  pass "downloads with plain rsync over SSH (no terminus rsync plugin)"
+else
+  fail "downloads with plain rsync over SSH (no terminus rsync plugin)"; sed 's/^/     /' "${WORK}/terminus.log"
 fi
 
 # --- 2. Pre-exported dir (local runs) exits 0 with no drift --------------

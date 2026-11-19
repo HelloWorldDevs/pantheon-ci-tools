@@ -38,6 +38,23 @@ emit() {  # emit key value  -> GITHUB_OUTPUT (if any) + stdout
   if [ -n "${GITHUB_OUTPUT:-}" ]; then echo "${1}=${2}" >> "${GITHUB_OUTPUT}"; fi
 }
 
+# download_from_appserver site.env remote_rel_dir local_dir
+# Plain rsync over SSH to the environment's SFTP endpoint. `terminus rsync`
+# would do the same, but it lives in a plugin (terminus-rsync-plugin) that
+# stock Terminus and the GitHub Action don't ship. remote_rel_dir is relative
+# to the SFTP home, which is the app server's $HOME (so `files/...` works).
+download_from_appserver() {
+  local site_env="$1" remote_rel="$2" dest="$3" user host port
+  user="$(terminus connection:info "${site_env}" --field=sftp_username)"
+  host="$(terminus connection:info "${site_env}" --field=sftp_host)"
+  port="$(terminus connection:info "${site_env}" --field=sftp_port)"
+  if [ -z "${user}" ] || [ -z "${host}" ] || [ -z "${port}" ]; then
+    echo "ERROR: could not read SFTP connection info for ${site_env}" >&2; exit 2
+  fi
+  rsync -rlz --exclude='.htaccess' -e "ssh -p ${port} -o BatchMode=yes" \
+    "${user}@${host}:${remote_rel%/}/" "${dest%/}/"
+}
+
 # Run from the repo root so CONFIG_SYNC_DIR resolves the same everywhere.
 if GITROOT="$(git rev-parse --show-toplevel 2>/dev/null)"; then cd "${GITROOT}"; fi
 
@@ -60,7 +77,7 @@ else
   : "${TERMINUS_SITE:?TERMINUS_SITE is required (or set PROD_CONFIG_DIR)}"
   command -v terminus >/dev/null || { echo "ERROR: terminus not on PATH" >&2; exit 2; }
   PROD="$(mktemp -d)"; CLEANUP="${PROD}"
-  # `terminus rsync site.env:files/...` is relative to the app server's $HOME
+  # The SFTP/rsync path `files/...` is relative to the app server's $HOME
   # (/srv/bindings/<id>), so export there. `/files/...` is the SFTP view, not a
   # real path on the app server, and drush fails on it as "not writable".
   REMOTE_REL="files/private/config-export"
@@ -74,7 +91,7 @@ else
   terminus drush "${TERMINUS_SITE}.${SRC_ENV}" -- \
     config:export --destination="${REMOTE_HOME%/}/${REMOTE_REL}" -y
   echo "==> Downloading it to ${PROD}"
-  terminus rsync "${TERMINUS_SITE}.${SRC_ENV}:${REMOTE_REL}/" "${PROD}/"
+  download_from_appserver "${TERMINUS_SITE}.${SRC_ENV}" "${REMOTE_REL}" "${PROD}"
 fi
 trap '[ -n "${CLEANUP}" ] && rm -rf "${CLEANUP}"' EXIT
 
