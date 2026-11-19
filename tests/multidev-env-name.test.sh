@@ -24,6 +24,8 @@ assert_env "ads-706" "feature/ADS-706-security-updates" "42"
 assert_env "ads-706" "fix/ADS-706" "42"
 assert_env "wav-123" "WAV-123-some-thing" ""
 assert_env "abcdefghij-" "chore/ABCDEFGHIJ-12345" "7"
+# Jira project keys can contain digits after the first letter.
+assert_env "l10dd-47" "fix/L10DD-47-drift-rsync" "119"
 
 # No Jira key: fall back to the PR number, like setup_vars.sh.
 assert_env "pr-42" "feature/security-updates" "42"

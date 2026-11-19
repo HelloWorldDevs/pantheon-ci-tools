@@ -18,7 +18,7 @@ case "$BRANCH" in
   master|main) exit 0 ;;
 esac
 
-if [[ "$BRANCH" =~ ([A-Z]{1,10}-[0-9]+) ]]; then
+if [[ "$BRANCH" =~ ([A-Z][A-Z0-9_]{1,9}-[0-9]+) ]]; then
   NAME="${BASH_REMATCH[1]}"
 elif [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
   NAME="pr-${PR_NUMBER}"

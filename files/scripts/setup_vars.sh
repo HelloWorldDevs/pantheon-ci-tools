@@ -21,7 +21,7 @@ echo "Using TERMINUS_SITE: $TERMINUS_SITE"
 JIRA_TICKET_ID="NO_TICKET"
 
 # Extract Jira ticket ID from branch name (e.g., WAV-123)
-if [[ "${CIRCLE_BRANCH}" =~ ([A-Z]{1,10}-[0-9]+) ]]; then
+if [[ "${CIRCLE_BRANCH}" =~ ([A-Z][A-Z0-9_]{1,9}-[0-9]+) ]]; then
     JIRA_TICKET_ID="${BASH_REMATCH[0]}"
     echo "Found Jira ticket in branch name: $JIRA_TICKET_ID"
 # Fallback to PR number if available
