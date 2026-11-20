@@ -86,6 +86,12 @@ class Installer
             $sourceBase . '/github/delete-multidev-on-merge.yml',
             $destBase . '/.github/workflows/delete-multidev-on-merge.yml'
         );
+        // Branch -> multidev name (Jira key, else pr-N). Used by the
+        // delete-multidev workflow so it deletes the env CI created.
+        $this->copyFile(
+            $sourceBase . '/scripts/multidev-env-name.sh',
+            $destBase . '/.ci/scripts/multidev-env-name.sh'
+        );
 
         // Copy test_routes.json only if it doesn't already exist in the destination
         $testRoutesDest = $destBase . '/test_routes.json';

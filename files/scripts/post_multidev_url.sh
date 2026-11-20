@@ -30,7 +30,7 @@ REPO="${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}"
 
 # Check if this is a PR from a Jira ticket branch
 ISSUE_KEY=""
-if [[ "${CIRCLE_BRANCH:-}" =~ ([A-Z]{2,10}-[0-9]+) ]]; then
+if [[ "${CIRCLE_BRANCH:-}" =~ ([A-Z][A-Z0-9_]{1,9}-[0-9]+) ]]; then
   ISSUE_KEY="${BASH_REMATCH[1]}"
   COMMENT_BODY="🔗 Multidev for ${ISSUE_KEY}: ${MULTIDEV_SITE_URL}"
 else

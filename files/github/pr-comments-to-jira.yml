@@ -110,7 +110,7 @@ jobs:
             
             // Try to find Jira issue key from PR title, body, or branch
             let issueKey = null;
-            const jiraKeyRegex = /[A-Z]+-[0-9]+/;
+            const jiraKeyRegex = /[A-Z][A-Z0-9_]+-[0-9]+/;
             
             // Check title
             const titleMatch = title.match(jiraKeyRegex);
