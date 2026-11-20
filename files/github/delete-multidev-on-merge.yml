@@ -1,4 +1,4 @@
-name: Delete Multidev on Merge
+name: Delete Multidev on PR Close
 
 on:
   pull_request:
@@ -6,7 +6,8 @@ on:
 
 jobs:
   delete-multidev:
-    if: github.event.pull_request.merged == true
+    # Runs on every close, merged or not: an abandoned PR's multidev would
+    # otherwise sit there and count against the site's multidev limit.
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
