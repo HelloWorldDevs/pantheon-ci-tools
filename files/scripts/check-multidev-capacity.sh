@@ -53,7 +53,7 @@ fi
 # a Jira-style ticket key in the branch wins, else the PR number, both
 # lowercased and clipped to Pantheon's 11-char environment-name limit.
 JIRA_TICKET_ID=""
-if [[ "$CIRCLE_BRANCH" =~ ([A-Z]{1,10}-[0-9]+) ]]; then
+if [[ "$CIRCLE_BRANCH" =~ ([A-Z][A-Z0-9_]{1,9}-[0-9]+) ]]; then
   JIRA_TICKET_ID="${BASH_REMATCH[0]}"
 fi
 PR_NUMBER=$(echo "${CIRCLE_PULL_REQUEST:-}" | grep -oE '[0-9]+$' || echo "")
