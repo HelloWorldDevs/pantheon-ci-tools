@@ -24,20 +24,47 @@ class Installer
      */
     public function install()
     {
+        $root = $this->findProjectRoot();
+        $usePhpunit = $this->usesPhpunitCi($root);
         $this->io->write('  - Copying CI configuration files...');
         $this->copyFiles();
 
-        if (!is_file($this->findProjectRoot() . '/tests/phpunit.ci.xml')) {
+        if (!$usePhpunit) {
+            $this->ensureDirectoryExists($root . '/.ci/test/behat');
+            foreach (['install-drupal', 'readme.sh', 'chrome.sh', 'run-tests-circle'] as $script) {
+                $path = '/.ci/test/behat/' . $script;
+                $this->copyFile(dirname(__DIR__) . '/files' . $path, $root . $path);
+            }
             $this->ensureBehatCiLocalSettings();
             $this->ensureBehatReadmeLandoEvent();
         }
 
         if ($this->isDrupalProject()) {
-            $configSplitInstaller = new InstallConfigSplit($this->io, $this->findProjectRoot());
+            $configSplitInstaller = new InstallConfigSplit($this->io, $root);
             $configSplitInstaller->install();
         } else {
             $this->io->write('  - Skipping Config Split installation (not a Drupal project)');
         }
+    }
+
+    private function usesPhpunitCi(string $root): bool
+    {
+        if (!is_file($root . '/composer.json')) {
+            return false;
+        }
+        $composer = json_decode(file_get_contents($root . '/composer.json'), true, 512, JSON_THROW_ON_ERROR);
+        if (!array_key_exists('phpunit-ci', $composer['scripts'] ?? [])) {
+            return false;
+        }
+        if (!is_file($root . '/tests/phpunit.ci.xml')) {
+            throw new \RuntimeException('The phpunit-ci Composer script requires tests/phpunit.ci.xml for CI.');
+        }
+        foreach (glob($root . '/tests/behat/features/*.feature', GLOB_NOSORT) as $feature) {
+            if (is_file($feature)) {
+                throw new \RuntimeException('The phpunit-ci Composer script selects PHPUnit, but tests/behat/features still has top-level feature files.');
+            }
+        }
+        return true;
     }
 
     /**
@@ -51,7 +78,6 @@ class Installer
         $sourceBase = dirname(__DIR__) . '/files';
         $this->io->write(sprintf('  - Source directory: %s', $sourceBase));
         
-        // Get the correct project root (find composer.json)
         $destBase = $this->findProjectRoot();
         $this->io->write(sprintf('  - Destination directory: %s', $destBase));
         
@@ -169,13 +195,6 @@ class Installer
             $sourceBase . '/scripts/summarize-junit-failures.js',
             $destBase . '/.ci/scripts/summarize-junit-failures.js'
         );
-        if (!is_file($destBase . '/tests/phpunit.ci.xml')) {
-            $this->ensureDirectoryExists($destBase . '/.ci/test/behat');
-            foreach (['install-drupal', 'readme.sh', 'chrome.sh', 'run-tests-circle'] as $script) {
-                $path = '/.ci/test/behat/' . $script;
-                $this->copyFile($sourceBase . $path, $destBase . $path);
-            }
-        }
 
         // Copy test files
         $this->copyFile(

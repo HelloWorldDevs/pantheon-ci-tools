@@ -1,7 +1,7 @@
 version: 2.1
 
 # ── Dynamic configuration entrypoint ─────────────────────────────────────────
-# tests/phpunit.ci.xml opts a project into PHPUnit. Other projects use the
+# The root Composer script phpunit-ci opts a project into PHPUnit. Other projects use the
 # Behat workflow, sized to the number of top-level feature files (1–12 boxes).
 # Both workflows use the PHP minor from pantheon.yml.
 setup: true
@@ -19,30 +19,32 @@ jobs:
     - run:
         name: Select the test suite and parallelism
         command: |
-          # behat_test self-skips (circleci-agent step halt) when there's no
-          # tests/behat, but parallelism is fixed at JOB-DEFINITION time — so a
-          # static config still provisions all 12 boxes before any step runs.
-          # Decide the count HERE, where we can see the repo, and pass it through.
-          #
-          # The runner (run-tests-circle) shards by TOP-LEVEL feature file, so
-          # set parallelism to the feature-file count (1..12). This avoids
-          # spinning 12 boxes for a 2-feature suite where 10 would sit idle.
           USE_PHPUNIT=false
-          if [ -f tests/phpunit.ci.xml ]; then
-            USE_PHPUNIT=true
-            BEHAT_PARALLELISM=1
-          elif [ -d tests/behat/features ]; then
-            # Use find, not `ls *.feature | wc -l`: with no matches `ls` exits
-            # non-zero and CircleCI's default `bash -eo pipefail` would abort the
-            # whole setup job (no continuation → no pipeline). `find` exits 0.
-            COUNT=$(find tests/behat/features -maxdepth 1 -name '*.feature' 2>/dev/null | wc -l | tr -d ' ')
-            if [ "${COUNT}" -lt 1 ]; then COUNT=1; fi
-            if [ "${COUNT}" -gt 12 ]; then COUNT=12; fi
-            echo "Behat tests found (${COUNT} feature file(s)) — parallelism ${COUNT}."
-            BEHAT_PARALLELISM=${COUNT}
-          else
-            echo "No tests/behat — behat_test will run on a single box."
-            BEHAT_PARALLELISM=1
+          if [ -f composer.json ]; then
+            USE_PHPUNIT=$(jq -r '(.scripts | objects // {}) | has("phpunit-ci")' composer.json)
+          fi
+
+          # Match the top-level feature files covered by the Behat runner.
+          feature_count=0
+          for feature in tests/behat/features/*.feature; do
+            if [ -f "$feature" ]; then
+              feature_count=$((feature_count + 1))
+            fi
+          done
+
+          BEHAT_PARALLELISM=1
+          if [ "$USE_PHPUNIT" = true ]; then
+            if [ ! -f tests/phpunit.ci.xml ]; then
+              echo "The phpunit-ci Composer script requires tests/phpunit.ci.xml for CI." >&2
+              exit 1
+            fi
+            if [ "$feature_count" -gt 0 ]; then
+              echo "The phpunit-ci Composer script selects PHPUnit, but tests/behat/features still has $feature_count top-level feature file(s)." >&2
+              exit 1
+            fi
+          elif [ "$feature_count" -gt 0 ]; then
+            BEHAT_PARALLELISM=$((feature_count < 12 ? feature_count : 12))
+            echo "Behat: $feature_count feature file(s), parallelism $BEHAT_PARALLELISM."
           fi
 
           # PHP minor for every executor in continue_config.yml (build image

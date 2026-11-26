@@ -827,26 +827,56 @@ jobs:
             cp -a "/tmp/workspace/theme-build/$theme/." "$theme/"
           fi
     - run:
-        name: Start Drupal and browser services
-        command: |
-          source .ci/scripts/detect_web_root.sh
-          test -f "$WEB_ROOT/.ht.router.php"
-          mkdir -p /tmp/phpunit-logs "$XDG_RUNTIME_DIR" "$WEB_ROOT/sites/simpletest/browser_output"
-          chmod 700 "$XDG_RUNTIME_DIR"
-          cd "$WEB_ROOT"
-          PHP_CLI_SERVER_WORKERS=4 php -d display_errors=0 -d log_errors=1 -S 127.0.0.1:8080 -t "$PWD" "$PWD/.ht.router.php" >/tmp/phpunit-logs/php.log 2>&1 &
-          chromedriver --port=9515 >/tmp/phpunit-logs/chromedriver.log 2>&1 &
-          google-chrome --headless --no-sandbox --disable-dev-shm-usage --user-data-dir=/tmp/phpunit-chrome --remote-debugging-port=9222 >/tmp/phpunit-logs/chrome.log 2>&1 &
-          wait -n
-        background: true
-    - run:
         name: Run project PHPUnit suites
         no_output_timeout: 20m
         command: |
-          dockerize -timeout 90s -wait tcp://127.0.0.1:3306 -wait http://127.0.0.1:8080/ -wait http://127.0.0.1:9515/status -wait http://127.0.0.1:9222/json/version
+          set -eo pipefail
           source .ci/scripts/detect_web_root.sh
+          test -f "$WEB_ROOT/.ht.router.php"
           export BROWSERTEST_OUTPUT_DIRECTORY="$PWD/$WEB_ROOT/sites/simpletest/browser_output"
+          mkdir -p /tmp/phpunit-logs "$XDG_RUNTIME_DIR" "$BROWSERTEST_OUTPUT_DIRECTORY"
+          chmod 700 "$XDG_RUNTIME_DIR"
+
+          service_groups=()
+          stop_services() {
+            local status=$?
+            trap - EXIT
+            trap '' TERM INT
+            if (( ${#service_groups[@]} )); then
+              kill -TERM -- "${service_groups[@]}" 2>/dev/null || true
+              local deadline=$((SECONDS + 5))
+              while (( SECONDS < deadline )) && kill -0 -- "${service_groups[@]}" 2>/dev/null; do
+                sleep 0.2
+              done
+              kill -KILL -- "${service_groups[@]}" 2>/dev/null || true
+              wait || true
+            fi
+            exit "$status"
+          }
+          trap stop_services EXIT
+          trap 'exit 143' TERM
+          trap 'exit 130' INT
+
+          # Bash job control gives each service and its workers a separate process group.
+          set -m
+          cd "$WEB_ROOT"
+          PHP_CLI_SERVER_WORKERS=4 php -d display_errors=0 -d log_errors=1 -S 127.0.0.1:8080 -t "$PWD" "$PWD/.ht.router.php" >/tmp/phpunit-logs/php.log 2>&1 &
+          service_groups+=("-$!")
+          chromedriver --port=9515 >/tmp/phpunit-logs/chromedriver.log 2>&1 &
+          service_groups+=("-$!")
+          google-chrome --headless --no-sandbox --disable-dev-shm-usage --user-data-dir=/tmp/phpunit-chrome --remote-debugging-port=9222 >/tmp/phpunit-logs/chrome.log 2>&1 &
+          service_groups+=("-$!")
+          set +m
+          cd - >/dev/null
+
+          dockerize -timeout 90s -wait tcp://127.0.0.1:3306 -wait http://127.0.0.1:8080/ -wait http://127.0.0.1:9515/status -wait http://127.0.0.1:9222/json/version
           composer phpunit-ci
+          for group in "${service_groups[@]}"; do
+            if ! kill -0 "${group#-}" 2>/dev/null; then
+              echo "A PHPUnit service exited early. See phpunit-logs." >&2
+              exit 1
+            fi
+          done
     - run:
         name: Collect browser output
         when: always
@@ -1188,13 +1218,16 @@ jobs:
     executor: pantheon
     steps:
     - checkout
-    - run:
-        name: Skip when the project has no test suite
-        command: |
-          if [ ! -d tests/behat ] && [ ! -f tests/phpunit.ci.xml ]; then
-            echo "No project test suite requires assets."
-            circleci-agent step halt
-          fi
+    - unless:
+        condition: << pipeline.parameters.use_phpunit >>
+        steps:
+        - run:
+            name: Skip when the project has no Behat suite
+            command: |
+              if [ ! -d tests/behat ]; then
+                echo "No project test suite requires assets."
+                circleci-agent step halt
+              fi
     # Shares build_and_deploy's cache key so the Composer download is warm.
     - restore_cache:
         keys:
