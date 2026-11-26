@@ -1,15 +1,9 @@
 version: 2.1
 
 # ── Dynamic configuration entrypoint ─────────────────────────────────────────
-# CircleCI runs THIS file first (setup: true). Its only job checks out the repo,
-# detects whether the project ships Behat tests and which PHP minor the site
-# runs (pantheon.yml), then "continues" into continue_config.yml — passing
-# behat_parallelism and php_version. This lets behat_test provision 12
-# executors ONLY when there are tests to shard (a Behat-less project gets
-# parallelism 1, so it spins a single box that halts instead of 12), and lets
-# every executor image track the project's PHP version.
-#
-# The real pipeline (executors, jobs, workflows) lives in continue_config.yml.
+# tests/phpunit.ci.xml opts a project into PHPUnit. Other projects use the
+# Behat workflow, sized to the number of top-level feature files (1–12 boxes).
+# Both workflows use the PHP minor from pantheon.yml.
 setup: true
 
 orbs:
@@ -23,7 +17,7 @@ jobs:
     steps:
     - checkout
     - run:
-        name: Detect Behat tests and choose parallelism
+        name: Select the test suite and parallelism
         command: |
           # behat_test self-skips (circleci-agent step halt) when there's no
           # tests/behat, but parallelism is fixed at JOB-DEFINITION time — so a
@@ -33,7 +27,11 @@ jobs:
           # The runner (run-tests-circle) shards by TOP-LEVEL feature file, so
           # set parallelism to the feature-file count (1..12). This avoids
           # spinning 12 boxes for a 2-feature suite where 10 would sit idle.
-          if [ -d tests/behat ]; then
+          USE_PHPUNIT=false
+          if [ -f tests/phpunit.ci.xml ]; then
+            USE_PHPUNIT=true
+            BEHAT_PARALLELISM=1
+          elif [ -d tests/behat/features ]; then
             # Use find, not `ls *.feature | wc -l`: with no matches `ls` exits
             # non-zero and CircleCI's default `bash -eo pipefail` would abort the
             # whole setup job (no continuation → no pipeline). `find` exits 0.
@@ -57,7 +55,7 @@ jobs:
           fi
           echo "PHP version for CI executors: ${PHP_VERSION}"
 
-          echo "{ \"behat_parallelism\": ${BEHAT_PARALLELISM}, \"php_version\": \"${PHP_VERSION}\" }" > /tmp/pipeline-parameters.json
+          echo "{ \"use_phpunit\": ${USE_PHPUNIT}, \"behat_parallelism\": ${BEHAT_PARALLELISM}, \"php_version\": \"${PHP_VERSION}\" }" > /tmp/pipeline-parameters.json
           cat /tmp/pipeline-parameters.json
     - continuation/continue:
         configuration_path: .circleci/continue_config.yml

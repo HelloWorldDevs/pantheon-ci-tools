@@ -1,9 +1,11 @@
 version: 2.1
 
 # This is the CONTINUATION config — it is not run directly. The setup config
-# (.circleci/config.yml, setup: true) detects whether the project ships Behat
-# tests and continues here, passing behat_parallelism. See that file for why.
+# (.circleci/config.yml, setup: true) selects PHPUnit or Behat and the PHP version.
 parameters:
+  use_phpunit:
+    type: boolean
+    default: false
   behat_parallelism:
     type: integer
     # Default 12 so a direct/manual run still shards. The setup config overrides
@@ -18,6 +20,7 @@ parameters:
     default: "8.2"
 
 orbs:
+  browser-tools: circleci/browser-tools@2.3.1
   jira: circleci/jira@2.2.0
   gh: circleci/github-cli@2.7.0
   slack: circleci/slack@5.1.1
@@ -803,6 +806,68 @@ jobs:
         debug: true
         pipeline_id: << pipeline.id >>
         pipeline_number: << pipeline.number >>
+  phpunit_test:
+    executor: behat
+    environment:
+      SIMPLETEST_DB: mysql://user:root@127.0.0.1/drupal
+      SIMPLETEST_BASE_URL: http://127.0.0.1:8080
+      CHROME_API_URL: http://127.0.0.1:9222
+      MINK_DRIVER_ARGS_WEBDRIVER: '["chrome", {"goog:chromeOptions":{"w3c":false,"args":["--headless","--no-sandbox","--disable-dev-shm-usage"]}}, "http://127.0.0.1:9515"]'
+    steps:
+    - checkout
+    - run: composer install --no-interaction --no-progress --prefer-dist
+    - browser-tools/install_chromedriver
+    - attach_workspace:
+        at: /tmp/workspace
+    - run:
+        name: Restore compiled theme
+        command: |
+          theme=$(cat /tmp/workspace/theme-path.txt)
+          if [ -n "$theme" ]; then
+            cp -a "/tmp/workspace/theme-build/$theme/." "$theme/"
+          fi
+    - run:
+        name: Start Drupal and browser services
+        command: |
+          source .ci/scripts/detect_web_root.sh
+          test -f "$WEB_ROOT/.ht.router.php"
+          mkdir -p /tmp/phpunit-logs "$XDG_RUNTIME_DIR" "$WEB_ROOT/sites/simpletest/browser_output"
+          chmod 700 "$XDG_RUNTIME_DIR"
+          cd "$WEB_ROOT"
+          PHP_CLI_SERVER_WORKERS=4 php -d display_errors=0 -d log_errors=1 -S 127.0.0.1:8080 -t "$PWD" "$PWD/.ht.router.php" >/tmp/phpunit-logs/php.log 2>&1 &
+          chromedriver --port=9515 >/tmp/phpunit-logs/chromedriver.log 2>&1 &
+          google-chrome --headless --no-sandbox --disable-dev-shm-usage --user-data-dir=/tmp/phpunit-chrome --remote-debugging-port=9222 >/tmp/phpunit-logs/chrome.log 2>&1 &
+          wait -n
+        background: true
+    - run:
+        name: Run project PHPUnit suites
+        no_output_timeout: 20m
+        command: |
+          dockerize -timeout 90s -wait tcp://127.0.0.1:3306 -wait http://127.0.0.1:8080/ -wait http://127.0.0.1:9515/status -wait http://127.0.0.1:9222/json/version
+          source .ci/scripts/detect_web_root.sh
+          export BROWSERTEST_OUTPUT_DIRECTORY="$PWD/$WEB_ROOT/sites/simpletest/browser_output"
+          composer phpunit-ci
+    - run:
+        name: Collect browser output
+        when: always
+        command: |
+          source .ci/scripts/detect_web_root.sh
+          if [ -d "$WEB_ROOT/sites/simpletest/browser_output" ]; then
+            mv "$WEB_ROOT/sites/simpletest/browser_output" /tmp/phpunit-logs/browser-output
+          fi
+    - store_test_results:
+        path: /tmp/phpunit-results
+    - store_artifacts:
+        path: /tmp/phpunit-results
+        destination: junit
+    - store_artifacts:
+        path: /tmp/phpunit-logs
+        destination: phpunit-logs
+    - slack/notify:
+        event: fail
+        channel: C06G970M5PF
+        template: basic_fail_1
+
   # Behat functional tests — SETUP phase (runs once).
   #
   # Builds the project, installs Drupal into the MariaDB service container,
@@ -1107,7 +1172,7 @@ jobs:
             --job-status "$(cat /tmp/behat-job-status 2>/dev/null || echo pass)" \
             --post --channel "${SLACK_DEFAULT_CHANNEL:-C06G970M5PF}"
 
-  # Compiles the theme for the Behat jobs WITHOUT depending on build_and_deploy.
+  # Compiles the theme for the test jobs before the master deploy.
   # Used by the master flow, where Behat runs BEFORE the deploy and so can't
   # inherit the deploy's theme build.
   #
@@ -1118,16 +1183,16 @@ jobs:
   # `ENOENT ... web/themes/contrib/<base>/src/scss`. build-tools-ci ships both
   # Composer AND Node, exactly like build_and_deploy (which is why its theme
   # build works). Stages into the layout behat_setup's restore expects
-  # (theme-build/<rel> + theme-path.txt). Self-skips when no tests/behat.
+  # (theme-build/<rel> + theme-path.txt).
   build_assets:
     executor: pantheon
     steps:
     - checkout
     - run:
-        name: Skip if project has no tests/behat
+        name: Skip when the project has no test suite
         command: |
-          if [ ! -d tests/behat ]; then
-            echo "No tests/behat — nothing to build for Behat."
+          if [ ! -d tests/behat ] && [ ! -f tests/phpunit.ci.xml ]; then
+            echo "No project test suite requires assets."
             circleci-agent step halt
           fi
     # Shares build_and_deploy's cache key so the Composer download is warm.
@@ -1148,7 +1213,7 @@ jobs:
         paths:
         - $HOME/.composer/cache
     - run:
-        name: Build theme and stage assets for Behat
+        name: Build and stage theme assets
         command: |
           set -eo pipefail
           # Always create the targets so persist_to_workspace never errors.
@@ -1160,7 +1225,7 @@ jobs:
           [ -f ./.ci/scripts/detect_web_root.sh ] && source ./.ci/scripts/detect_web_root.sh || true
           if [ -z "${THEME_PATH:-}" ]; then
             # Genuinely theme-less project: nothing to build, not an error.
-            echo "THEME_PATH unset — no theme to build for Behat."
+            echo "THEME_PATH unset — no theme to build."
             exit 0
           fi
           if [ ! -d "${THEME_PATH}" ]; then
@@ -1180,7 +1245,7 @@ jobs:
           mkdir -p "/tmp/workspace/theme-build/${THEME_REL}"
           tar -C "${THEME_PATH}" --exclude=node_modules -cf - . \
             | tar -C "/tmp/workspace/theme-build/${THEME_REL}" -xf -
-          echo "Staged compiled theme assets for Behat: ${THEME_REL}"
+          echo "Staged compiled theme assets: ${THEME_REL}"
           # Prove the build actually produced compiled output — a build that exits
           # 0 but emits no dist/build/css is exactly how Behat ends up unstyled on
           # master. FATAL: stop here rather than test an unstyled site.
@@ -1217,8 +1282,8 @@ jobs:
 #     Deploy to the multidev FIRST, then run tests against the live preview.
 #     Tests do not block the multidev deploy.
 #
-#   • master_test_then_deploy (master only → Pantheon dev): Behat runs FIRST and
-#     BLOCKS the deploy — master only deploys to dev if Behat passes. Playwright
+#   • master_test_then_deploy (master only → Pantheon dev): the selected test suite runs FIRST and
+#     BLOCKS the deploy — master only deploys to dev if the suite passes. Playwright
 #     runs AFTER the deploy as a non-blocking check (nothing depends on it).
 #
 # The jobs are defined once under `jobs:` and reused in both workflows with
@@ -1259,26 +1324,29 @@ workflows:
         - JIRA_WEBHOOK_URL
         # Carries both VRT_USERNAME and VRT_PASSWORD for authenticated routes.
         - VRT_USERNAME
+    - phpunit_test:
+        filters: pipeline.git.branch != "master" and pipeline.parameters.use_phpunit
+        requires:
+        - build_and_deploy
+        context:
+        - GITHUB_TOKEN
+        - SLACK_ACCESS_TOKEN
     - behat_setup:
-        filters:
-          branches:
-            ignore: master
+        filters: pipeline.git.branch != "master" and not pipeline.parameters.use_phpunit
         requires:
         - build_and_deploy
         context:
         - GITHUB_TOKEN
         - SLACK_ACCESS_TOKEN
     - behat_test:
-        filters:
-          branches:
-            ignore: master
+        filters: pipeline.git.branch != "master" and not pipeline.parameters.use_phpunit
         requires:
         - behat_setup
         context:
         - GITHUB_TOKEN
         - SLACK_ACCESS_TOKEN
 
-  # master flow: Behat gates the deploy to Pantheon dev.
+  # The selected test suite gates the master deploy to Pantheon dev.
   master_test_then_deploy:
     jobs:
     # Build the theme first so Behat renders a styled site (the deploy job that
@@ -1291,31 +1359,35 @@ workflows:
         # composer install needs the token (GitHub API rate limits / private VCS).
         context:
         - GITHUB_TOKEN
+    - phpunit_test:
+        filters: pipeline.git.branch == "master" and pipeline.parameters.use_phpunit
+        requires:
+        - build_assets
+        context:
+        - GITHUB_TOKEN
+        - SLACK_ACCESS_TOKEN
     - behat_setup:
-        filters:
-          branches:
-            only: master
+        filters: pipeline.git.branch == "master" and not pipeline.parameters.use_phpunit
         requires:
         - build_assets
         context:
         - GITHUB_TOKEN
         - SLACK_ACCESS_TOKEN
     - behat_test:
-        filters:
-          branches:
-            only: master
+        filters: pipeline.git.branch == "master" and not pipeline.parameters.use_phpunit
         requires:
         - behat_setup
         context:
         - GITHUB_TOKEN
         - SLACK_ACCESS_TOKEN
-    # Deploy to dev ONLY after Behat passes.
+    # CircleCI ignores the filtered test job. The selected one must pass.
     - build_and_deploy:
         filters:
           branches:
             only: master
         requires:
         - behat_test
+        - phpunit_test
         # master deploys to Pantheon's dev env; recorded as a "development"
         # deploy (Atlassian has no "dev" category — see job parameter notes).
         jira_environment: "${DEV_SITE_URL}"

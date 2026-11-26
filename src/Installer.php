@@ -27,15 +27,10 @@ class Installer
         $this->io->write('  - Copying CI configuration files...');
         $this->copyFiles();
 
-        // For projects using the local-install ("box") Behat model, make sure
-        // the CI settings.local.php that configure-site copies actually exists
-        // and is tracked (it's commonly gitignored, which breaks CI).
-        $this->ensureBehatCiLocalSettings();
-
-        // Wire the Behat readme hint into .lando.yml post-start so `lando start`
-        // prints local-test instructions. Done surgically (append-only) rather
-        // than via the full YAML re-dump, which is intentionally disabled.
-        $this->ensureBehatReadmeLandoEvent();
+        if (!is_file($this->findProjectRoot() . '/tests/phpunit.ci.xml')) {
+            $this->ensureBehatCiLocalSettings();
+            $this->ensureBehatReadmeLandoEvent();
+        }
 
         if ($this->isDrupalProject()) {
             $configSplitInstaller = new InstallConfigSplit($this->io, $this->findProjectRoot());
@@ -63,7 +58,6 @@ class Installer
         // Ensure destination directories exist
         $this->ensureDirectoryExists($destBase . '/.circleci');
         $this->ensureDirectoryExists($destBase . '/.ci/test/visual-regression');
-        $this->ensureDirectoryExists($destBase . '/.ci/test/behat');
         $this->ensureDirectoryExists($destBase . '/.ci/scripts');
         
         // Copy CircleCI config. config.yml is the dynamic-config ENTRYPOINT
@@ -175,51 +169,13 @@ class Installer
             $sourceBase . '/scripts/summarize-junit-failures.js',
             $destBase . '/.ci/scripts/summarize-junit-failures.js'
         );
-        // Behat: the behat_setup/behat_test jobs in continue_config.yml self-skip
-        // (circleci-agent step halt) unless the project ships a tests/behat
-        // directory.
-        //
-        // Tool-shipped (always overwritten — these are standardizable):
-        //   - install-drupal: auto-detects the install profile, installs THAT
-        //     profile by name, then imports the exported config on top (works
-        //     even for profiles with a hook_install(), which Drupal won't install
-        //     from config). The old per-project copies installed a generic
-        //     profile then config-import, which fails and loops forever on sites
-        //     with a custom install profile.
-        //   - readme.sh: local `lando behat` setup hint.
-        //   - chrome.sh: launches headless Chrome on :9515 for the DMore driver.
-        //   - run-tests-circle: the sharded CI runner (also enables CI-only
-        //     content modules by the *_test_content/_custom_content/_default_content
-        //     /_user_content convention).
-        //
-        // Still PROJECT-SUPPLIED (inherently project-specific): configure-site
-        // (theme build, file ownership) and run-tests (non-sharded fallback).
-        $this->copyFile(
-            $sourceBase . '/.ci/test/behat/install-drupal',
-            $destBase . '/.ci/test/behat/install-drupal'
-        );
-        // Local-dev helper: prints Chrome-for-Testing + `lando behat` setup
-        // instructions on `lando start` (wired into .lando.yml post-start by
-        // InstallConfigSplit). Self-silences when the project has no tests/behat.
-        $this->copyFile(
-            $sourceBase . '/.ci/test/behat/readme.sh',
-            $destBase . '/.ci/test/behat/readme.sh'
-        );
-        // Launches headless Chrome on :9515 in CI for Behat's DMore Chrome
-        // driver. The behat_test job runs it (if present) right before the Behat
-        // runner. Its baked-in Chrome path matches the tool's behat executor
-        // image (helloworlddevs/atdove-testing-image) — same as atdove uses.
-        $this->copyFile(
-            $sourceBase . '/.ci/test/behat/chrome.sh',
-            $destBase . '/.ci/test/behat/chrome.sh'
-        );
-        // Canonical sharded CI runner — always shipped (overwritten) so every
-        // project gets the same parallel sharding + CI-content-module enabling.
-        // The behat_test job prefers run-tests-circle over run-tests.
-        $this->copyFile(
-            $sourceBase . '/.ci/test/behat/run-tests-circle',
-            $destBase . '/.ci/test/behat/run-tests-circle'
-        );
+        if (!is_file($destBase . '/tests/phpunit.ci.xml')) {
+            $this->ensureDirectoryExists($destBase . '/.ci/test/behat');
+            foreach (['install-drupal', 'readme.sh', 'chrome.sh', 'run-tests-circle'] as $script) {
+                $path = '/.ci/test/behat/' . $script;
+                $this->copyFile($sourceBase . $path, $destBase . $path);
+            }
+        }
 
         // Copy test files
         $this->copyFile(
